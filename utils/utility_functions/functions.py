@@ -42,8 +42,8 @@ def define_model():
 
     if Arguments.model == "resnet18":
         model = ResNet18(num_classes=num_classes)
-    elif Arguments.model == "resnet152":
-        model = ResNet152(num_classes=num_classes)
+    # elif Arguments.model == "resnet152":
+    #     model = ResNet152(num_classes=num_classes)
     elif Arguments.model == "cnn_mnist":
         model = CNN_MNIST(num_classes=num_classes)
     elif Arguments.model == "cnn_cifar":
@@ -81,7 +81,9 @@ def compute_full_gradient(model:nn.Module, worker_index:int, criterion, dataload
         loss.backward()
         data_points += len(data)
         for i, param in enumerate(model.parameters()):
-            full_gradient[i] += param.grad.data * len(data)
+            if param.grad is not None:
+                full_gradient[i] += param.grad.data * len(data)
+
         if Arguments.fg_batch_size > 0 and data_points >= Arguments.fg_batch_size:
             break
 
@@ -92,8 +94,9 @@ def compute_full_gradient(model:nn.Module, worker_index:int, criterion, dataload
     for i, param in enumerate(model.parameters()):
         worker_full_gradient[i] = param.grad.data.clone()
 
-    # average the full gradient overall workers
-    average_lists(full_gradient, group)
+    if float(dist.get_world_size()) > 1:
+        # average the full gradient overall workers
+        average_lists(full_gradient, group)
     model.zero_grad()
 
     return worker_full_gradient, full_gradient
@@ -199,13 +202,15 @@ def in_place_add_parameters(par1: dict,par2: dict):
     for key in par1.keys():
         par1[key]+=par2[key]
 
-def compute_norm(l:list):
+def compute_norm(l:list, squared:bool=False):
     norm = 0
     for param in l:
         norm += torch.norm(param).item() ** 2
-
-    norm = norm ** 0.5
-    return norm
+    if squared:
+        return norm
+    else:
+        norm = norm ** 0.5
+        return norm
 
 def compute_norm_model_grad(model):
     norm = 0

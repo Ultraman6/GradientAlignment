@@ -23,6 +23,8 @@ def parse_arguments():
     parser.add_argument("--nlogging_steps", default=100, type=int, choices=range(1, 1001),
                         help="number of rounds for logging, i.e., there is logging whenever round % nlogging_steps == 0")
     parser.add_argument("--learning_rate", default=0.01, type=float, help="learning rate for each of the local steps")
+    parser.add_argument("--scaling", action='store_true', help="Use scaling of the gradients per layer")
+    parser.add_argument("--snapshot", action='store_true', help="Use scaling of the gradients per layer")
 
 
     parser.add_argument("--task", default="MNIST", type=str, choices={"MNIST", "EMNIST", "CIFAR10", "CIFAR100"}, help="Dataset to be used")
@@ -58,13 +60,18 @@ def parse_arguments():
 
 
     parser.add_argument("--beta", default=0.1, type=float, help="Corresponds to the beta constant in the FedGA algorithm")
+    parser.add_argument("--prox_gamma", default=0.1, type=float,
+                        help="FedProx constant")
 
     parser.add_argument("--fg_batch_size", default=-1, type=int, help="Full gradient Batch size")
 
     parser.add_argument("--plot_grad_alignment", action='store_true', help="Set to true to plot the gradient variance after each round.")
 
+    parser.add_argument('--sgd', action='store_true',
+                        help="Use SGD algorithm, it is also used by default if no other is set")
     parser.add_argument('--fedavg', action='store_true', help="Use FedAvg algorithm, it is also used by default if no other is set")
     parser.add_argument("--grad_align", action='store_true', help="Use the FedGA algorithm")
+    parser.add_argument("--fedprox", action='store_true', help="Use the FedProx algorithm")
     parser.add_argument("--scaffold", action='store_true', help="Use SCAFFOLD algorithm.")
     parser.add_argument('--largeBatchSGD', action='store_true', help="Use largeBatch SGD")
 
