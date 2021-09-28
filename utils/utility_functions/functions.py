@@ -80,8 +80,11 @@ def compute_full_gradient(model:nn.Module, worker_index:int, criterion, dataload
     for data, target in dataloaders[worker_index]:
         data, target = data.cuda(), target.cuda()
         model.zero_grad()
-        output = model(data)
-        loss = criterion(output, target)
+        if Arguments.task != "shakespeare":
+            output = model(data)
+            loss = criterion(output, target)
+        else:
+            loss, _ = model(data, target, criterion)
         loss.backward()
         data_points += len(data)
         for i, param in enumerate(model.parameters()):

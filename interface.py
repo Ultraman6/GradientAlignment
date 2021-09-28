@@ -62,36 +62,30 @@ def FedProx(rank:int, size:int, dataloaders:list, indices):
                         difference[i] = full_gradient[i] - local_gradient[i]
                     log_metric(["Variance"], [compute_norm(difference)], num_updates, False)
 
-            train_iterable = iter(dataloaders[worker_index])
-            # The algorithm performs Arguments.nsteps local updates
+            # The algorithm performs Arguments.nsteps local epochs
 
             global_model = create_model_param_list(model)
             for step in range(Arguments.nsteps):
-                try:
-                    data, target = train_iterable.next()
-                except:
-                    train_iterable = iter(dataloaders[worker_index])
+                for data, target in dataloaders[worker_index]:
+                    data, target = data.cuda(),target.cuda()
+                    optimizer.zero_grad()
+                    output = model(data)
+                    proximal_term = create_zero_list(model)
+                    for i, param in enumerate(model_at_start.parameters()):
+                        proximal_term[i] = param.data[i] - global_model[i]
 
-                    data, target = train_iterable.next()
-                data, target = data.cuda(),target.cuda()
-                optimizer.zero_grad()
-                output = model(data)
-                proximal_term = create_zero_list(model)
-                for i, param in enumerate(model_at_start.parameters()):
-                    proximal_term[i] = param.data[i] - global_model[i]
+                    loss = criterion(output, target) + Arguments.prox_gamma * compute_norm(proximal_term, squared=True)
+                    acc = accuracy()
+                    mean_train_loss.add(loss.item(), weight=len(data))
+                    mean_train_acc.add(acc.item(), weight=len(data))
 
-                loss = criterion(output, target) + Arguments.prox_gamma * compute_norm(proximal_term, squared=True)
-                acc = accuracy()
-                mean_train_loss.add(loss.item(), weight=len(data))
-                mean_train_acc.add(acc.item(), weight=len(data))
+                    loss.backward()
 
-                loss.backward()
+                    if Arguments.gradient_clipping:
+                        torch.nn.utils.clip_grad_norm_(model.parameters(), Arguments.clipping_norm, norm_type=2)
 
-                if Arguments.gradient_clipping:
-                    torch.nn.utils.clip_grad_norm_(model.parameters(), Arguments.clipping_norm, norm_type=2)
-
-                optimizer.step()
-                num_updates += 1
+                    optimizer.step()
+                    num_updates += 1
 
             # After the local updates, the models are averaged among the active workers.
             average_models(model, group)
@@ -251,33 +245,27 @@ def FedAvg(rank:int, size:int, dataloaders:list, indices):
                         difference[i] = full_gradient[i] - local_gradient[i]
                     log_metric(["Variance"], [compute_norm(difference)], num_updates, False)
 
-            train_iterable = iter(dataloaders[worker_index])
-            # The algorithm performs Arguments.nsteps local updates
+            # The algorithm performs Arguments.nsteps local epochs
             for step in range(Arguments.nsteps):
-                try:
-                    data, target = train_iterable.next()
-                except:
-                    train_iterable = iter(dataloaders[worker_index])
+                for data, target in dataloaders[worker_index]:
+                    data, target = data.cuda(), target.cuda()
+                    optimizer.zero_grad()
+                    if Arguments.task != "shakespeare":
+                        output = model(data)
+                        loss = criterion(output, target)
+                        acc = accuracy(output, target)
+                    else:
+                        loss, acc = model(data, target, criterion)
+                    loss.backward()
 
-                    data, target = train_iterable.next()
-                data, target = data.cuda(), target.cuda()
-                optimizer.zero_grad()
-                if Arguments.task != "shakespeare":
-                    output = model(data)
-                    loss = criterion(output, target)
-                    acc = accuracy(output, target)
-                else:
-                    loss, acc = model(data, target, criterion)
-                loss.backward()
+                    mean_train_loss.add(loss.item(), weight=len(data))
+                    mean_train_acc.add(acc.item(), weight=len(data))
 
-                mean_train_loss.add(loss.item(), weight=len(data))
-                mean_train_acc.add(acc.item(), weight=len(data))
+                    if Arguments.gradient_clipping:
+                        torch.nn.utils.clip_grad_norm_(model.parameters(), Arguments.clipping_norm, norm_type=2)
 
-                if Arguments.gradient_clipping:
-                    torch.nn.utils.clip_grad_norm_(model.parameters(), Arguments.clipping_norm, norm_type=2)
-
-                optimizer.step()
-                num_updates += 1
+                    optimizer.step()
+                    num_updates += 1
 
 
             # After the local updates, the models are averaged among the active workers.
@@ -367,40 +355,33 @@ def GradAlign(rank:int, size:int, dataloaders:list, indices):
             if num_rounds in Arguments.scheduler:
                 Arguments.beta *= Arguments.lr_decay
 
-            train_iterable = iter(dataloaders[worker_index])
-
             # Before the round starts, we take the displayment spet scaled by the drift and the beta constant
             for i, param in enumerate(model.parameters()):
                 # param.data += Arguments.beta * (local_gradient[i])
                 param.data -= Arguments.beta * (full_gradient[i] - local_gradient[i])
 
-            # The algorithm performs Arguments.nsteps local updates
+            # The algorithm performs Arguments.nsteps local epochs
             for step in range(Arguments.nsteps):
 
-                try:
-                    data, target = train_iterable.next()
-                except:
-                    train_iterable = iter(dataloaders[worker_index])
-                    data, target = train_iterable.next()
+                for data, target in dataloaders[worker_index]:
+                    data, target = data.cuda(),target.cuda()
+                    optimizer.zero_grad()
+                    if Arguments.task != "shakespeare":
+                        output = model(data)
+                        loss = criterion(output, target)
+                        acc = accuracy(output, target)
+                    else:
+                        loss, acc = model(data, target, criterion)
+                    loss.backward()
 
-                data, target = data.cuda(),target.cuda()
-                optimizer.zero_grad()
-                if Arguments.task != "shakespeare":
-                    output = model(data)
-                    loss = criterion(output, target)
-                    acc = accuracy(output, target)
-                else:
-                    loss, acc = model(data, target, criterion)
-                loss.backward()
+                    mean_train_loss.add(loss.item(), weight=len(data))
+                    mean_train_acc.add(acc.item(), weight=len(data))
 
-                mean_train_loss.add(loss.item(), weight=len(data))
-                mean_train_acc.add(acc.item(), weight=len(data))
+                    if Arguments.gradient_clipping:
+                        torch.nn.utils.clip_grad_norm_(model.parameters(), Arguments.clipping_norm, norm_type=2)
 
-                if Arguments.gradient_clipping:
-                    torch.nn.utils.clip_grad_norm_(model.parameters(), Arguments.clipping_norm, norm_type=2)
-
-                optimizer.step()
-                num_updates += 1
+                    optimizer.step()
+                    num_updates += 1
 
             # After the local updates, the models are averaged among the active workers.
             average_models(model, group)
@@ -485,38 +466,32 @@ def Scaffold(rank:int, size:int, dataloaders:list, indices:list):
                 log_metric(["Variance"], [compute_norm(difference)], num_updates, False)
 
 
-            train_iterable = iter(dataloaders[worker_index])
             # The algorithm performs Arguments.nsteps local updates
             for step in range(Arguments.nsteps):
-                try:
-                    data, target = train_iterable.next()
-                except:
-                    train_iterable = iter(dataloaders[worker_index])
-                    data, target = train_iterable.next()
+                for data, target in dataloaders[worker_index]:
+                    data, target = data.cuda(),target.cuda()
+                    optimizer.zero_grad()
+                    if Arguments.task != "shakespeare":
+                        output = model(data)
+                        loss = criterion(output, target)
+                        acc = accuracy(output, target)
+                    else:
+                        loss, acc = model(data, target, criterion)
+                    loss.backward()
 
-                data, target = data.cuda(),target.cuda()
-                optimizer.zero_grad()
-                if Arguments.task != "shakespeare":
-                    output = model(data)
-                    loss = criterion(output, target)
-                    acc = accuracy(output, target)
-                else:
-                    loss, acc = model(data, target, criterion)
-                loss.backward()
+                    mean_train_loss.add(loss.item(), weight=len(data))
+                    mean_train_acc.add(acc.item(), weight=len(data))
 
-                mean_train_loss.add(loss.item(), weight=len(data))
-                mean_train_acc.add(acc.item(), weight=len(data))
-
-                # The drift correction is added to the gradient in each of the local updates.
-                for i, param in enumerate(model.parameters()):
-                    param.grad += (full_gradient[i] - local_gradient[i])
+                    # The drift correction is added to the gradient in each of the local updates.
+                    for i, param in enumerate(model.parameters()):
+                        param.grad += (full_gradient[i] - local_gradient[i])
 
 
-                if Arguments.gradient_clipping:
-                    torch.nn.utils.clip_grad_norm_(model.parameters(), Arguments.clipping_norm, norm_type=2)
+                    if Arguments.gradient_clipping:
+                        torch.nn.utils.clip_grad_norm_(model.parameters(), Arguments.clipping_norm, norm_type=2)
 
-                optimizer.step()
-                num_updates += 1
+                    optimizer.step()
+                    num_updates += 1
 
             average_models(model, group)
 
