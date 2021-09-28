@@ -2,6 +2,62 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from utils.utility_functions.arguments import Arguments
+from utils.utility_functions.accumulators import accuracy
+
+
+from torch.autograd import Variable
+
+class CharRNN(nn.Module):
+    def __init__(self, input_size, hidden_size=256, model="lstm", n_layers=2):
+        super(CharRNN, self).__init__()
+        self.model = model.lower()
+        self.input_size = input_size
+        self.hidden_size = hidden_size
+        self.output_size = input_size
+        self.n_layers = n_layers
+
+        self.encoder = nn.Embedding(input_size, hidden_size)
+        if self.model == "gru":
+            self.rnn = nn.GRU(hidden_size, hidden_size, n_layers)
+        elif self.model == "lstm":
+            self.rnn = nn.LSTM(hidden_size, hidden_size, n_layers)
+        self.decoder = nn.Linear(hidden_size, input_size)
+
+    def forward(self, inp, target, criterion, just_last:bool=False):
+        batch_size = inp.size(0)
+        self.hidden = self.init_hidden(batch_size)
+        self.zero_grad()
+        loss = 0
+        acc = 0
+
+        for c in range(Arguments.sequence_len):
+            output, self.hidden = self.inernal_forward(inp[:,c], self.hidden)
+            if just_last: # returns only the last loss and last accuracy
+                loss = acc = 0
+            loss += criterion(output.view(batch_size, -1), target[:,c])
+            new_acc = accuracy(output.view(batch_size, -1), target[:,c])
+            acc += new_acc if just_last else new_acc / Arguments.sequence_len
+
+        return loss, acc
+
+    def inernal_forward(self, input, hidden):
+        batch_size = input.size(0)
+        encoded = self.encoder(input)
+        output, hidden = self.rnn(encoded.view(1, batch_size, -1), hidden)
+        output = self.decoder(output.view(batch_size, -1))
+        return output, hidden
+
+    def forward2(self, input, hidden):
+        encoded = self.encoder(input.view(1, -1))
+        output, hidden = self.rnn(encoded.view(1, 1, -1), hidden)
+        output = self.decoder(output.view(1, -1))
+        return output, hidden
+
+    def init_hidden(self, batch_size):
+        if self.model == "lstm":
+            return (Variable(torch.zeros(self.n_layers, batch_size, self.hidden_size).cuda()),
+                    Variable(torch.zeros(self.n_layers, batch_size, self.hidden_size)).cuda())
+        return Variable(torch.zeros(self.n_layers, batch_size, self.hidden_size).cuda())
 
 
 class CNN_MNIST(nn.Module):

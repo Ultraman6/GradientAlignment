@@ -161,11 +161,16 @@ def SGD(rank:int, size:int, dataloaders:list, indices):
             for data, target in dataloaders[worker_index]:
                 data, target = data.cuda(),target.cuda()
                 optimizer.zero_grad()
-                output = model(data)
-                loss = criterion(output, target)
+
+                if Arguments.task != "shakespeare":
+                    output = model(data)
+                    loss = criterion(output, target)
+                    acc = accuracy(output, target)
+                else:
+                    loss, acc = model(data, target, criterion)
+
                 loss.backward()
 
-                acc = accuracy(output, target)
                 mean_train_loss.add(loss.item(), weight=len(data))
                 mean_train_acc.add(acc.item(), weight=len(data))
 
@@ -255,13 +260,16 @@ def FedAvg(rank:int, size:int, dataloaders:list, indices):
                     train_iterable = iter(dataloaders[worker_index])
 
                     data, target = train_iterable.next()
-                data, target = data.cuda(),target.cuda()
+                data, target = data.cuda(), target.cuda()
                 optimizer.zero_grad()
-                output = model(data)
-                loss = criterion(output, target)
+                if Arguments.task != "shakespeare":
+                    output = model(data)
+                    loss = criterion(output, target)
+                    acc = accuracy(output, target)
+                else:
+                    loss, acc = model(data, target, criterion)
                 loss.backward()
 
-                acc = accuracy(output, target)
                 mean_train_loss.add(loss.item(), weight=len(data))
                 mean_train_acc.add(acc.item(), weight=len(data))
 
@@ -363,6 +371,7 @@ def GradAlign(rank:int, size:int, dataloaders:list, indices):
 
             # Before the round starts, we take the displayment spet scaled by the drift and the beta constant
             for i, param in enumerate(model.parameters()):
+                # param.data += Arguments.beta * (local_gradient[i])
                 param.data -= Arguments.beta * (full_gradient[i] - local_gradient[i])
 
             # The algorithm performs Arguments.nsteps local updates
@@ -376,11 +385,14 @@ def GradAlign(rank:int, size:int, dataloaders:list, indices):
 
                 data, target = data.cuda(),target.cuda()
                 optimizer.zero_grad()
-                output = model(data)
-                loss = criterion(output, target)
+                if Arguments.task != "shakespeare":
+                    output = model(data)
+                    loss = criterion(output, target)
+                    acc = accuracy(output, target)
+                else:
+                    loss, acc = model(data, target, criterion)
                 loss.backward()
 
-                acc = accuracy(output, target)
                 mean_train_loss.add(loss.item(), weight=len(data))
                 mean_train_acc.add(acc.item(), weight=len(data))
 
@@ -458,6 +470,8 @@ def Scaffold(rank:int, size:int, dataloaders:list, indices:list):
         criterion = torch.nn.functional.cross_entropy
 
         for counter, worker_index in enumerate(indices):
+            mean_train_loss = Mean()
+            mean_train_acc = Mean()
             # Computation of the elements needed for the drift correction
             local_gradient, full_gradient = compute_full_gradient(model, worker_index, criterion, dataloaders, group)
             # To compute this gradient, there is an additional round of communication
@@ -482,9 +496,16 @@ def Scaffold(rank:int, size:int, dataloaders:list, indices:list):
 
                 data, target = data.cuda(),target.cuda()
                 optimizer.zero_grad()
-                output = model(data)
-                loss = criterion(output, target)
+                if Arguments.task != "shakespeare":
+                    output = model(data)
+                    loss = criterion(output, target)
+                    acc = accuracy(output, target)
+                else:
+                    loss, acc = model(data, target, criterion)
                 loss.backward()
+
+                mean_train_loss.add(loss.item(), weight=len(data))
+                mean_train_acc.add(acc.item(), weight=len(data))
 
                 # The drift correction is added to the gradient in each of the local updates.
                 for i, param in enumerate(model.parameters()):
@@ -509,6 +530,15 @@ def Scaffold(rank:int, size:int, dataloaders:list, indices:list):
             scheduler.step()
             scheduler.step()
             num_rounds += 1
+
+            train_stats = [torch.tensor(100 * mean_train_acc.value()), torch.tensor(mean_train_loss.value())]
+            average_lists(train_stats, group)
+            if rank == 0:
+                log_metric(
+                    ["Train Accuracy", "Train Loss", "num_updates", "rounds"],
+                    [train_stats[0].item(), train_stats[1].item(), num_updates, num_rounds],
+                    num_updates
+                )
 
             if counter % Arguments.nlogging_steps == 0:
                 if check_validation_and_stopping(counter, model, num_updates, num_rounds, rank, group):
@@ -590,7 +620,7 @@ def init_processes(rank:int, size:int, fn, dataloaders:list, indices:list, backe
 def construct_and_train():
     # We partition the data according to the chosen distribution. The parameter Arguments.percentage_iid controls
     # the percent of i.i.d. data in each worker.
-    dataloaders =[ torch.utils.data.DataLoader(subset,batch_size=Arguments.batch_size, shuffle= True)
+    dataloaders =[ torch.utils.data.DataLoader(subset, batch_size=Arguments.batch_size, shuffle= True)
                      for subset in split_data(Arguments.task, Arguments.nsubsets, Arguments.percentage_iid,
                                               use_two_splits=False )]
 

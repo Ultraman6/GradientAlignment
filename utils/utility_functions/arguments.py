@@ -27,8 +27,8 @@ def parse_arguments():
     parser.add_argument("--snapshot", action='store_true', help="Use scaling of the gradients per layer")
 
 
-    parser.add_argument("--task", default="MNIST", type=str, choices={"MNIST", "EMNIST", "CIFAR10", "CIFAR100"}, help="Dataset to be used")
-    parser.add_argument("--model", default="cnn_mnist", choices={"cnn_mnist", "cnn_cifar", "resnet18"}, type=str, help="model to be used")
+    parser.add_argument("--task", default="MNIST", type=str, choices={"MNIST", "EMNIST", "CIFAR10", "CIFAR100", "shakespeare"}, help="Dataset to be used")
+    parser.add_argument("--model", default="cnn_mnist", choices={"cnn_mnist", "cnn_cifar", "resnet18","rnn"}, type=str, help="model to be used")
 
     parser.add_argument('--gradient_clipping', action='store_true', help="Clip gradients of workers")
     parser.add_argument("--clipping_norm", default=1.0, type=float,
@@ -74,6 +74,8 @@ def parse_arguments():
     parser.add_argument("--fedprox", action='store_true', help="Use the FedProx algorithm")
     parser.add_argument("--scaffold", action='store_true', help="Use SCAFFOLD algorithm.")
     parser.add_argument('--largeBatchSGD', action='store_true', help="Use largeBatch SGD")
+
+    parser.add_argument("--sequence_len", type=int, default=80, help="Used to set the random seed of the algorithm.")
 
     args = vars(parser.parse_args())
     if ((args['percentage_iid'] == 0) or (args['percentage_iid'] == 1)):

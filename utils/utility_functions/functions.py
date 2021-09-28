@@ -15,11 +15,13 @@ def validation_accuracy(model: torch.nn.Module, cuda_dev):
     with torch.no_grad():
         for batch_x, batch_y in validation_loader:
             batch_x, batch_y = batch_x.to(cuda_dev), batch_y.to(cuda_dev)
-            prediction = model(batch_x)
-            if type(prediction) == list:
-                prediction = prediction[-1]
-            loss = criterion(prediction, batch_y)
-            acc = accuracy(prediction, batch_y)
+            if Arguments.task != "shakespeare":
+                prediction = model(batch_x)
+                loss = criterion(prediction, batch_y)
+                acc = accuracy(prediction, batch_y)
+            else:
+                loss, acc = model(batch_x, batch_y, criterion, just_last=True)
+
             mean_test_loss.add(loss.item(), weight=len(batch_x))
             mean_test_accuracy.add(acc.item(), weight=len(batch_x))
     model.train()
@@ -48,6 +50,8 @@ def define_model():
         model = CNN_MNIST(num_classes=num_classes)
     elif Arguments.model == "cnn_cifar":
         model = CNN_CIFAR10()
+    elif Arguments.model == "rnn":
+        model = CharRNN(101, hidden_size=256, model="lstm", n_layers=2)
 
     if Arguments.load_seed != -1:
         try:
