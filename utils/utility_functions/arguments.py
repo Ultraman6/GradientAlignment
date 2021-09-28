@@ -76,6 +76,7 @@ def parse_arguments():
     parser.add_argument('--largeBatchSGD', action='store_true', help="Use largeBatch SGD")
 
     parser.add_argument("--sequence_len", type=int, default=80, help="Used to set the random seed of the algorithm.")
+    parser.add_argument("--single_loss", action='store_true', help="Use just the loss of the last char in shakespeare.")
 
     args = vars(parser.parse_args())
     if ((args['percentage_iid'] == 0) or (args['percentage_iid'] == 1)):

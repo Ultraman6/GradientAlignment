@@ -23,7 +23,10 @@ class CharRNN(nn.Module):
             self.rnn = nn.LSTM(hidden_size, hidden_size, n_layers)
         self.decoder = nn.Linear(hidden_size, input_size)
 
-    def forward(self, inp, target, criterion, just_last:bool=False):
+    # just_last uses only the loss from the last char prediction
+    def forward(self, inp, target, criterion, just_last=None):
+        if just_last is None:
+            just_last = Arguments.single_loss
         batch_size = inp.size(0)
         self.hidden = self.init_hidden(batch_size)
         self.zero_grad()
@@ -45,12 +48,6 @@ class CharRNN(nn.Module):
         encoded = self.encoder(input)
         output, hidden = self.rnn(encoded.view(1, batch_size, -1), hidden)
         output = self.decoder(output.view(batch_size, -1))
-        return output, hidden
-
-    def forward2(self, input, hidden):
-        encoded = self.encoder(input.view(1, -1))
-        output, hidden = self.rnn(encoded.view(1, 1, -1), hidden)
-        output = self.decoder(output.view(1, -1))
         return output, hidden
 
     def init_hidden(self, batch_size):
