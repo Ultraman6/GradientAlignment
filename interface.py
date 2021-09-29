@@ -70,6 +70,7 @@ def FedProx(rank:int, size:int, dataloaders:list, indices):
                     data, target = train_iterable.next()
                 except:
                     train_iterable = iter(dataloaders[worker_index])
+                    data, target = train_iterable.next()
                 data, target = data.cuda(),target.cuda()
                 optimizer.zero_grad()
                 output = model(data)
@@ -254,6 +255,7 @@ def FedAvg(rank:int, size:int, dataloaders:list, indices):
                     data, target = train_iterable.next()
                 except:
                     train_iterable = iter(dataloaders[worker_index])
+                    data, target = train_iterable.next()
                 data, target = data.cuda(), target.cuda()
                 optimizer.zero_grad()
                 if Arguments.task != "shakespeare":
@@ -361,7 +363,7 @@ def GradAlign(rank:int, size:int, dataloaders:list, indices):
             if num_rounds in Arguments.scheduler:
                 Arguments.beta *= Arguments.lr_decay
 
-            # Before the round starts, we take the displayment spet scaled by the drift and the beta constant
+            # Before the round starts, we take the displayment step scaled by the beta constant
             for i, param in enumerate(model.parameters()):
                 # param.data += Arguments.beta * (local_gradient[i])
                 param.data -= Arguments.beta * (full_gradient[i] - local_gradient[i])
@@ -372,6 +374,7 @@ def GradAlign(rank:int, size:int, dataloaders:list, indices):
                     data, target = train_iterable.next()
                 except:
                     train_iterable = iter(dataloaders[worker_index])
+                    data, target = train_iterable.next()
                 data, target = data.cuda(),target.cuda()
                 optimizer.zero_grad()
                 if Arguments.task != "shakespeare":
@@ -480,6 +483,7 @@ def Scaffold(rank:int, size:int, dataloaders:list, indices:list):
                     data, target = train_iterable.next()
                 except:
                     train_iterable = iter(dataloaders[worker_index])
+                    data, target = train_iterable.next()
                 data, target = data.cuda(),target.cuda()
                 optimizer.zero_grad()
                 if Arguments.task != "shakespeare":

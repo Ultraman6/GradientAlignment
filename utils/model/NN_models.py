@@ -16,11 +16,11 @@ class CharRNN(nn.Module):
         self.output_size = input_size
         self.n_layers = n_layers
 
-        self.encoder = nn.Embedding(input_size, hidden_size)
+        self.encoder = nn.Embedding(input_size, 8)
         if self.model == "gru":
-            self.rnn = nn.GRU(hidden_size, hidden_size, n_layers)
+            self.rnn = nn.GRU(8, hidden_size, n_layers)
         elif self.model == "lstm":
-            self.rnn = nn.LSTM(hidden_size, hidden_size, n_layers)
+            self.rnn = nn.LSTM(8, hidden_size, n_layers)
         self.decoder = nn.Linear(hidden_size, input_size)
 
     # just_last uses only the loss from the last char prediction

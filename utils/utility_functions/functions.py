@@ -51,7 +51,7 @@ def define_model():
     elif Arguments.model == "cnn_cifar":
         model = CNN_CIFAR10()
     elif Arguments.model == "rnn":
-        model = CharRNN(101, hidden_size=256, model="lstm", n_layers=2)
+        model = CharRNN(101, hidden_size=100, model="lstm", n_layers=2)
 
     if Arguments.load_seed != -1:
         try:
@@ -94,9 +94,12 @@ def compute_full_gradient(model:nn.Module, worker_index:int, criterion, dataload
         if Arguments.fg_batch_size > 0 and data_points >= Arguments.fg_batch_size:
             break
 
+    data_points_wrapper = [torch.tensor([Arguments.nprocesses * data_points]).float()]
+    average_lists(data_points_wrapper, group)
+
     for i, param in enumerate(model.parameters()):
-        full_gradient[i] /= data_points
-        param.grad = full_gradient[i].clone()
+        param.grad = full_gradient[i].clone() / data_points
+        full_gradient[i] *= Arguments.nprocesses / data_points_wrapper[0].item()
 
     for i, param in enumerate(model.parameters()):
         worker_full_gradient[i] = param.grad.data.clone()
