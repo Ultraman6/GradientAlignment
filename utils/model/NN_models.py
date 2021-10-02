@@ -97,7 +97,7 @@ class CNN_CIFAR10(nn.Module):
     def __init__(self, w_conv_bias=True, w_fc_bias=True):
         super(CNN_CIFAR10, self).__init__()
         # decide the num of classes.
-        self.num_classes = 10
+        self.num_classes = 10 if Arguments.task == "CIFAR10" else 100
 
         # define layers.
         self.conv1 = nn.Conv2d(3, 6, 5, bias=w_conv_bias)

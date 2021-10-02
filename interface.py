@@ -79,7 +79,7 @@ def FedProx(rank:int, size:int, dataloaders:list, indices):
                     proximal_term[i] = param.data[i] - global_model[i]
 
                 loss = criterion(output, target) + Arguments.prox_gamma * compute_norm(proximal_term, squared=True)
-                acc = accuracy()
+                acc = accuracy(output, target)
                 mean_train_loss.add(loss.item(), weight=len(data))
                 mean_train_acc.add(acc.item(), weight=len(data))
 
