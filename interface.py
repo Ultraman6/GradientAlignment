@@ -71,7 +71,7 @@ def FedProx(rank:int, size:int, dataloaders:list, indices):
                 except:
                     train_iterable = iter(dataloaders[worker_index])
                     data, target = train_iterable.next()
-                data, target = data.cuda(),target.cuda()
+                data, target = data.cuda(),target.reshape(-1).cuda()
                 optimizer.zero_grad()
                 output = model(data)
                 proximal_term = create_zero_list(model)
@@ -157,15 +157,12 @@ def SGD(rank:int, size:int, dataloaders:list, indices):
             mean_train_acc = Mean()
 
             for data, target in dataloaders[worker_index]:
-                data, target = data.cuda(),target.cuda()
+                data, target = data.cuda(),target.reshape(-1).cuda()
                 optimizer.zero_grad()
 
-                if Arguments.task != "shakespeare":
-                    output = model(data)
-                    loss = criterion(output, target)
-                    acc = accuracy(output, target)
-                else:
-                    loss, acc = model(data, target, criterion)
+                output = model(data)
+                loss = criterion(output, target)
+                acc = accuracy(output, target)
 
                 loss.backward()
 
@@ -256,14 +253,13 @@ def FedAvg(rank:int, size:int, dataloaders:list, indices):
                 except:
                     train_iterable = iter(dataloaders[worker_index])
                     data, target = train_iterable.next()
-                data, target = data.cuda(), target.cuda()
+                data, target = data.cuda(),target.reshape(-1).cuda()
                 optimizer.zero_grad()
-                if Arguments.task != "shakespeare":
-                    output = model(data)
-                    loss = criterion(output, target)
-                    acc = accuracy(output, target)
-                else:
-                    loss, acc = model(data, target, criterion)
+
+                output = model(data)
+                loss = criterion(output, target)
+                acc = accuracy(output, target)
+
                 loss.backward()
 
                 mean_train_loss.add(loss.item(), weight=len(data))
@@ -375,14 +371,12 @@ def GradAlign(rank:int, size:int, dataloaders:list, indices):
                 except:
                     train_iterable = iter(dataloaders[worker_index])
                     data, target = train_iterable.next()
-                data, target = data.cuda(),target.cuda()
+                data, target = data.cuda(),target.reshape(-1).cuda()
                 optimizer.zero_grad()
-                if Arguments.task != "shakespeare":
-                    output = model(data)
-                    loss = criterion(output, target)
-                    acc = accuracy(output, target)
-                else:
-                    loss, acc = model(data, target, criterion)
+                output = model(data)
+                loss = criterion(output, target)
+                acc = accuracy(output, target)
+
                 loss.backward()
 
                 mean_train_loss.add(loss.item(), weight=len(data))
@@ -484,14 +478,11 @@ def Scaffold(rank:int, size:int, dataloaders:list, indices:list):
                 except:
                     train_iterable = iter(dataloaders[worker_index])
                     data, target = train_iterable.next()
-                data, target = data.cuda(),target.cuda()
+                data, target = data.cuda(),target.reshape(-1).cuda()
                 optimizer.zero_grad()
-                if Arguments.task != "shakespeare":
-                    output = model(data)
-                    loss = criterion(output, target)
-                    acc = accuracy(output, target)
-                else:
-                    loss, acc = model(data, target, criterion)
+                output = model(data)
+                loss = criterion(output, target)
+                acc = accuracy(output, target)
                 loss.backward()
 
                 mean_train_loss.add(loss.item(), weight=len(data))

@@ -14,13 +14,10 @@ def validation_accuracy(model: torch.nn.Module, cuda_dev):
     criterion = torch.nn.CrossEntropyLoss()
     with torch.no_grad():
         for batch_x, batch_y in validation_loader:
-            batch_x, batch_y = batch_x.to(cuda_dev), batch_y.to(cuda_dev)
-            if Arguments.task != "shakespeare":
-                prediction = model(batch_x)
-                loss = criterion(prediction, batch_y)
-                acc = accuracy(prediction, batch_y)
-            else:
-                loss, acc = model(batch_x, batch_y, criterion, just_last=True)
+            batch_x, batch_y = batch_x.to(cuda_dev), batch_y.reshape(-1).to(cuda_dev)
+            prediction = model(batch_x)
+            loss = criterion(prediction, batch_y)
+            acc = accuracy(prediction, batch_y)
 
             mean_test_loss.add(loss.item(), weight=len(batch_x))
             mean_test_accuracy.add(acc.item(), weight=len(batch_x))
