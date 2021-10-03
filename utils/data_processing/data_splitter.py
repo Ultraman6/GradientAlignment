@@ -101,6 +101,122 @@ def get_shakespeare_ds(train:bool):
     else:
         return list(set().union(*datasets))
 
+
+
+def get_sent140_ds(train:bool):
+
+	def process_x(raw_x_batch):
+        x_batch = [e[4] for e in raw_x_batch]
+        x_batch = [line_to_indices(e, word_indices, seq_len) for e in x_batch]
+        temp = np.asarray(x_batch)
+        x_batch = torch.from_numpy(np.asarray(x_batch))
+        return x_batch
+
+	def process_y(raw_y_batch):
+        #return torch.from_numpy(np.asarray(raw_y_batch, dtype=np.float32))
+        return torch.from_numpy(np.asarray(raw_y_batch, dtype=np.float64))
+
+    def get_word_emb_arr(path):
+	    with open(path, 'r') as inf:
+	        embs = json.load(inf)
+	    vocab = embs['vocab']
+	    word_emb_arr = np.array(embs['emba'])
+	    indd = {}
+	    for i in range(len(vocab)):
+	        indd[vocab[i]] = i
+	    vocab = {w: i for i, w in enumerate(embs['vocab'])}
+	    return word_emb_arr, indd, vocab
+
+	def sent140_preprocess_x(X):
+	    x_batch = [e[4] for e in X]  # list of lines/phrases
+	    x = np.zeros((len(x_batch), embed_dim))
+	    for i in range(len(x_batch)):
+	        line = x_batch[i]
+	        words = split_line(line)
+	        idxs = [vocab[word] if word in vocab.keys() else emb_array.shape[0] - 1
+	                for word in words]
+	        word_embeddings = np.mean([emb_array[idx] for idx in idxs], axis=0)
+	        x[i, :] = word_embeddings
+	    return x
+
+	def sent140_preprocess_y(raw_y_batch):
+	    res = []
+	    for i in range(len(raw_y_batch)):
+	        res.append(float(raw_y_batch[i]))
+	    return res
+
+	global VOCAB_DIR
+	global emb_array
+    global vocab
+    global embed_dim
+    VOCAB_DIR = 'sent140/embs.json'
+    emb_array, _, vocab = get_word_emb_arr(VOCAB_DIR)
+    # print('shape obtained : ' + str(emb_array.shape))
+    embed_dim = emb_array.shape[1]
+
+    clients = []
+    groups = []
+    train_data = {}
+    test_data = {}
+
+    train_files = os.listdir(train_data_dir)
+    train_files = [f for f in train_files if f.endswith('.json')]
+    # START Old version :
+    for f in train_files:
+        file_path = os.path.join(train_data_dir, f)
+        print('reading train file ' + str(file_path))
+        with open(file_path, 'r') as inf:
+            cdata = json.load(inf)
+        clients.extend(cdata['users'])
+        if 'hierarchies' in cdata:
+            groups.extend(cdata['hierarchies'])
+        train_data.update(cdata['user_data'])
+
+    test_files = os.listdir(test_data_dir)
+    test_files = [f for f in test_files if f.endswith('.json')]
+    for f in test_files:
+        file_path = os.path.join(test_data_dir, f)
+        print('reading test file ' + str(file_path))
+        with open(file_path, 'r') as inf:
+            cdata = json.load(inf)
+        test_data.update(cdata['user_data'])
+    # END Old version
+
+    #counter = 0
+    #for f in train_files:
+    #    file_path = os.path.join(train_data_dir, f)
+    #    with open(file_path, 'r') as inf:
+    #        cdata = json.load(inf)
+    #    clients.extend(cdata['users'])
+    #    if 'hierarchies' in cdata:
+    #        groups.extend(cdata['hierarchies'])
+    #    train_data.update(cdata['user_data'])
+    #    counter += 1
+    #    if counter == 50:
+    #        break
+
+    #clients = [list(train_data.keys()). list(test_data.keys())]
+    if split_by_user:
+        clients = {
+            'train_users': list(train_data.keys()),
+            'test_users': list(test_data.keys())
+        }
+    else:
+        clients = {
+            'train_users': list(train_data.keys())
+        }
+
+	datasets = []
+    for u in clients['train_users']:
+        data_labels = 
+            (process_x(sent140_preprocess_x(train_data[u]['x'])), process_y(sent140_preprocess_y(train_data[u]['y'])))
+        datasets.append(data_labels)
+    if train:
+        return datasets
+    else:
+        return list(set().union(*datasets))
+
+
 def partition_noniid(dataset: torch.utils.data.Dataset,workers: int, percentage_iid: float,use_two_splits):
     perm = torch.randperm(len(dataset))
     iid_indices = perm[:int(len(dataset)*percentage_iid)]
@@ -156,6 +272,8 @@ def split_data(task: str, workers: int, percentage_iid: float, use_two_splits: b
                                    transform=CIFAR100Transform.train_transform())
     elif Arguments.task == "shakespeare":
         return get_shakespeare_ds(train=True)
+    elif Arguments.task == "sent140":
+    	return get_sent140_ds(train=True)
     else :# task == "CIFAR10"
         dataset = datasets.CIFAR10(root=Arguments.data_home, train=True, download=True,
                                    transform=CIFAR10Transform.train_transform())
@@ -175,6 +293,8 @@ def get_validation_data(task: str):
         dataset = datasets.CIFAR100(root=Arguments.data_home, train=False, download=True, transform=CIFAR100Transform.test_transform())
     elif Arguments.task == "shakespeare":
         return get_shakespeare_ds(train=False)
+    elif Arguments.task == "sent140":
+    	return get_sent140_ds(train=False)
     else:# task == "CIFAR10"
         dataset = datasets.CIFAR10(root=Arguments.data_home, train=False, download=True, transform=CIFAR10Transform.test_transform())
     return dataset
