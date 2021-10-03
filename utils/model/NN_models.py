@@ -20,35 +20,20 @@ class CharRNN(nn.Module):
         if self.model == "gru":
             self.rnn = nn.GRU(8, hidden_size, n_layers)
         elif self.model == "lstm":
-            self.rnn = nn.LSTM(8, hidden_size, n_layers)
+            self.rnn = nn.LSTM(8, hidden_size, n_layers, batch_first=True)
         self.decoder = nn.Linear(hidden_size, input_size)
 
-    # just_last uses only the loss from the last char prediction
-    def forward(self, inp, target, criterion, just_last=None):
-        if just_last is None:
-            just_last = Arguments.single_loss
+    def forward(self, inp):
         batch_size = inp.size(0)
         self.hidden = self.init_hidden(batch_size)
         self.zero_grad()
-        loss = 0
-        acc = 0
 
-        for c in range(Arguments.sequence_len):
-            output, self.hidden = self.inernal_forward(inp[:,c], self.hidden)
-            if just_last: # returns only the last loss and last accuracy
-                loss = acc = 0
-            loss += criterion(output.view(batch_size, -1), target[:,c])
-            new_acc = accuracy(output.view(batch_size, -1), target[:,c])
-            acc += new_acc if just_last else new_acc / Arguments.sequence_len
+        encoded = self.encoder(inp)
+        output, self.hidden = self.rnn(encoded, self.hidden)
+        output = output[:, -1, :]
+        output = self.decoder(output)
 
-        return loss, acc
-
-    def inernal_forward(self, input, hidden):
-        batch_size = input.size(0)
-        encoded = self.encoder(input)
-        output, hidden = self.rnn(encoded.view(1, batch_size, -1), hidden)
-        output = self.decoder(output.view(batch_size, -1))
-        return output, hidden
+        return output.reshape(-1, self.input_size)
 
     def init_hidden(self, batch_size):
         if self.model == "lstm":

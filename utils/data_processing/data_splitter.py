@@ -92,8 +92,7 @@ def get_shakespeare_ds(train:bool):
             (torch.tensor(x), torch.tensor(y)) for x, y in
             zip(
                 char_to_tokens(list(data[c].values())[0]),
-                [t[1:] + r for t, r in
-                 zip(char_to_tokens(list(data[c].values())[0]), char_to_tokens(list(data[c].values())[1]))]
+                char_to_tokens(list(data[c].values())[1])
             )
         ]
         datasets.append(data_labels)
