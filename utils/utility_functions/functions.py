@@ -32,6 +32,17 @@ def get_device(rank, as_str:bool = True):
     else:
         return torch.device(device)
 
+def get_word_emb_arr(path):
+    with open(path, 'r') as inf:
+        embs = json.load(inf)
+    vocab = embs['vocab']
+    word_emb_arr = np.array(embs['emba'])
+    indd = {}
+    for i in range(len(vocab)):
+        indd[vocab[i]] = i
+    vocab = {w: i for i, w in enumerate(embs['vocab'])}
+    return word_emb_arr, indd, vocab
+
 def define_model():
     # set the same seed for the creation of all models
     torch.manual_seed(Arguments.seed)
@@ -49,6 +60,10 @@ def define_model():
         model = CNN_CIFAR10()
     elif Arguments.model == "rnn":
         model = CharRNN(101, hidden_size=100, model="lstm", n_layers=2)
+    elif Arguments.model == "LSTM":
+        VOCAB_DIR = '../../data/sent140/embs.json'
+        emb_array, word_indices, vocab = get_word_emb_arr(VOCAB_DIR)
+        model = LSTMModel(emb_array)
 
     if Arguments.load_seed != -1:
         try:
