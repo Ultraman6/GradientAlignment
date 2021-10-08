@@ -1,6 +1,4 @@
 import os
-
-import numpy as np
 import wandb
 import torch.optim as optim
 from torch.multiprocessing import Process
@@ -60,7 +58,9 @@ def FedProx(rank:int, size:int, dataloaders:list, indices):
                     difference = create_zero_list(model)
                     for i, param in enumerate(model.parameters()):
                         difference[i] = full_gradient[i] - local_gradient[i]
-                    log_metric(["Variance"], [compute_norm(difference)], num_updates, False)
+                    log_metric(["Variance", "Normalized_variance"],
+                               [compute_norm(difference), compute_norm(difference) / compute_norm(full_gradient)],
+                               num_updates, False)
 
             # The algorithm performs Arguments.nsteps local epochs
 
@@ -244,7 +244,10 @@ def FedAvg(rank:int, size:int, dataloaders:list, indices):
                     difference = create_zero_list(model)
                     for i, param in enumerate(model.parameters()):
                         difference[i] = full_gradient[i] - local_gradient[i]
-                    log_metric(["Variance"], [compute_norm(difference)], num_updates, False)
+                    log_metric(["Variance", "Normalized_variance"],
+                               [compute_norm(difference), compute_norm(difference) / compute_norm(full_gradient)],
+                               num_updates, False)
+
 
             # The algorithm performs Arguments.nsteps local epochs
             for step in range(Arguments.nsteps):
@@ -354,7 +357,11 @@ def GradAlign(rank:int, size:int, dataloaders:list, indices):
                 difference = create_zero_list(model)
                 for i, param in enumerate(model.parameters()):
                     difference[i] = full_gradient[i] - local_gradient[i]
-                log_metric(["Variance"], [compute_norm(difference)], num_updates, False)
+                    log_metric(["Variance", "Normalized_variance"],
+                               [compute_norm(difference), compute_norm(difference) / compute_norm(full_gradient)],
+                               num_updates, False)
+
+
 
             if num_rounds in Arguments.scheduler:
                 Arguments.beta *= Arguments.lr_decay
@@ -468,7 +475,9 @@ def Scaffold(rank:int, size:int, dataloaders:list, indices:list):
                 difference = create_zero_list(model)
                 for i, param in enumerate(model.parameters()):
                     difference[i] = full_gradient[i] - local_gradient[i]
-                log_metric(["Variance"], [compute_norm(difference)], num_updates, False)
+                log_metric(["Variance", "Normalized_variance"],
+                           [compute_norm(difference), compute_norm(difference) / compute_norm(full_gradient)],
+                           num_updates, False)
 
 
             # The algorithm performs Arguments.nsteps local updates

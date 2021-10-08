@@ -5,6 +5,8 @@ from utils.utility_functions.accumulators import *
 from utils.model.NN_models import *
 from utils.utility_functions.arguments import Arguments
 import torch.distributed as dist
+import json
+import numpy as np
 
 def validation_accuracy(model: torch.nn.Module, cuda_dev):
     model.eval()
@@ -32,17 +34,6 @@ def get_device(rank, as_str:bool = True):
     else:
         return torch.device(device)
 
-def get_word_emb_arr(path):
-    with open(path, 'r') as inf:
-        embs = json.load(inf)
-    vocab = embs['vocab']
-    word_emb_arr = np.array(embs['emba'])
-    indd = {}
-    for i in range(len(vocab)):
-        indd[vocab[i]] = i
-    vocab = {w: i for i, w in enumerate(embs['vocab'])}
-    return word_emb_arr, indd, vocab
-
 def define_model():
     # set the same seed for the creation of all models
     torch.manual_seed(Arguments.seed)
@@ -58,12 +49,11 @@ def define_model():
         model = CNN_MNIST(num_classes=num_classes)
     elif Arguments.model == "cnn_cifar":
         model = CNN_CIFAR10()
-    elif Arguments.model == "rnn":
+    elif Arguments.model == "rnn_shakespeare":
         model = CharRNN(101, hidden_size=100, model="lstm", n_layers=2)
-    elif Arguments.model == "LSTM":
-        VOCAB_DIR = '../../data/sent140/embs.json'
-        emb_array, word_indices, vocab = get_word_emb_arr(VOCAB_DIR)
-        model = LSTMModel(emb_array)
+    elif Arguments.model == "rnn_sent140":
+        # model = LSTMModel(Arguments.emb_array, hidden_dim=100)
+        model = CharRNN(3, hidden_size=100, model="lstm", n_layers=2, word_emb_array=Arguments.emb_array)
 
     if Arguments.load_seed != -1:
         try:

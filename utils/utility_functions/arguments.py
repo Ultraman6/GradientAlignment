@@ -28,7 +28,7 @@ def parse_arguments():
 
 
     parser.add_argument("--task", default="MNIST", type=str, choices={"MNIST", "EMNIST", "CIFAR10", "CIFAR100", "shakespeare", "sent140"}, help="Dataset to be used")
-    parser.add_argument("--model", default="cnn_mnist", choices={"cnn_mnist", "cnn_cifar", "resnet18","rnn"}, type=str, help="model to be used")
+    parser.add_argument("--model", default="cnn_mnist", choices={"cnn_mnist", "cnn_cifar", "resnet18","rnn_shakespeare", "rnn_sent140"}, type=str, help="model to be used")
 
     parser.add_argument('--gradient_clipping', action='store_true', help="Clip gradients of workers")
     parser.add_argument("--clipping_norm", default=1.0, type=float,

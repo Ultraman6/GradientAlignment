@@ -1,13 +1,9 @@
-import torch
 from torchvision import datasets, transforms
 import math
-import numpy as np
-from utils.utility_functions.arguments import Arguments
-import json
 import os
 from collections import defaultdict
 import string
-import torch.nn.functional as F
+from utils.data_processing.sent140.sent140_functions import *
 
 class MNISTTransform:
     @classmethod
@@ -102,119 +98,47 @@ def get_shakespeare_ds(train:bool):
         return list(set().union(*datasets))
 
 
-
 def get_sent140_ds(train:bool):
+    vocab_dir = '/mlodata1/barba/sent140/embs.json'
+    extra = "train" if train else "test"
+    data_dir = "../data/sent140/" + extra
 
-	def process_x(raw_x_batch):
-        x_batch = [e[4] for e in raw_x_batch]
-        x_batch = [line_to_indices(e, word_indices, seq_len) for e in x_batch]
-        temp = np.asarray(x_batch)
-        x_batch = torch.from_numpy(np.asarray(x_batch))
-        return x_batch
-
-	def process_y(raw_y_batch):
-        #return torch.from_numpy(np.asarray(raw_y_batch, dtype=np.float32))
-        return torch.from_numpy(np.asarray(raw_y_batch, dtype=np.float64))
-
-    def get_word_emb_arr(path):
-	    with open(path, 'r') as inf:
-	        embs = json.load(inf)
-	    vocab = embs['vocab']
-	    word_emb_arr = np.array(embs['emba'])
-	    indd = {}
-	    for i in range(len(vocab)):
-	        indd[vocab[i]] = i
-	    vocab = {w: i for i, w in enumerate(embs['vocab'])}
-	    return word_emb_arr, indd, vocab
-
-	def sent140_preprocess_x(X):
-	    x_batch = [e[4] for e in X]  # list of lines/phrases
-	    x = np.zeros((len(x_batch), embed_dim))
-	    for i in range(len(x_batch)):
-	        line = x_batch[i]
-	        words = split_line(line)
-	        idxs = [vocab[word] if word in vocab.keys() else emb_array.shape[0] - 1
-	                for word in words]
-	        word_embeddings = np.mean([emb_array[idx] for idx in idxs], axis=0)
-	        x[i, :] = word_embeddings
-	    return x
-
-	def sent140_preprocess_y(raw_y_batch):
-	    res = []
-	    for i in range(len(raw_y_batch)):
-	        res.append(float(raw_y_batch[i]))
-	    return res
-
-	global VOCAB_DIR
-	global emb_array
-    global vocab
-    global embed_dim
-    VOCAB_DIR = 'sent140/embs.json'
-    emb_array, _, vocab = get_word_emb_arr(VOCAB_DIR)
+    Arguments.emb_array, Arguments.word_indices, Arguments.vocab = get_word_emb_arr(vocab_dir)
     # print('shape obtained : ' + str(emb_array.shape))
-    embed_dim = emb_array.shape[1]
+    Arguments.embed_dim = Arguments.emb_array.shape[1]
 
-    clients = []
-    groups = []
-    train_data = {}
-    test_data = {}
+    data = {}
 
-    train_files = os.listdir(train_data_dir)
-    train_files = [f for f in train_files if f.endswith('.json')]
-    # START Old version :
-    for f in train_files:
-        file_path = os.path.join(train_data_dir, f)
-        print('reading train file ' + str(file_path))
+    files = os.listdir(data_dir)
+    files = [f for f in files if f.endswith('.json')]
+    for f in files:
+        file_path = os.path.join(data_dir, f)
+        print('reading file ' + str(file_path))
         with open(file_path, 'r') as inf:
             cdata = json.load(inf)
-        clients.extend(cdata['users'])
-        if 'hierarchies' in cdata:
-            groups.extend(cdata['hierarchies'])
-        train_data.update(cdata['user_data'])
+        data.update(cdata['user_data'])
 
-    test_files = os.listdir(test_data_dir)
-    test_files = [f for f in test_files if f.endswith('.json')]
-    for f in test_files:
-        file_path = os.path.join(test_data_dir, f)
-        print('reading test file ' + str(file_path))
-        with open(file_path, 'r') as inf:
-            cdata = json.load(inf)
-        test_data.update(cdata['user_data'])
-    # END Old version
+    clients = data.keys()
 
-    #counter = 0
-    #for f in train_files:
-    #    file_path = os.path.join(train_data_dir, f)
-    #    with open(file_path, 'r') as inf:
-    #        cdata = json.load(inf)
-    #    clients.extend(cdata['users'])
-    #    if 'hierarchies' in cdata:
-    #        groups.extend(cdata['hierarchies'])
-    #    train_data.update(cdata['user_data'])
-    #    counter += 1
-    #    if counter == 50:
-    #        break
+    ds = []
+    for u in clients:
+        data_labels = [
+            (torch.tensor(x).long(), torch.tensor(y).long()) for x, y in
+            zip(
+                sent140_preprocess_x(data[u]['x']),
+                sent140_preprocess_y(data[u]['y'])
+            )
+        ]
+        ds.append(data_labels)
 
-    #clients = [list(train_data.keys()). list(test_data.keys())]
-    if split_by_user:
-        clients = {
-            'train_users': list(train_data.keys()),
-            'test_users': list(test_data.keys())
-        }
-    else:
-        clients = {
-            'train_users': list(train_data.keys())
-        }
-
-	datasets = []
-    for u in clients['train_users']:
-        data_labels = 
-            (process_x(sent140_preprocess_x(train_data[u]['x'])), process_y(sent140_preprocess_y(train_data[u]['y'])))
-        datasets.append(data_labels)
     if train:
-        return datasets
+        return ds
     else:
-        return list(set().union(*datasets))
+        print(len(ds))
+        print(len(ds[0]))
+        print(ds[0][0][0].shape, ds[0][0][1].shape)
+        print(ds[0][0][0], ds[0][0][1])
+        return list(set().union(*ds))
 
 
 def partition_noniid(dataset: torch.utils.data.Dataset,workers: int, percentage_iid: float,use_two_splits):

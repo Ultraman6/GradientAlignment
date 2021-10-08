@@ -2,13 +2,51 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from utils.utility_functions.arguments import Arguments
-from utils.utility_functions.accumulators import accuracy
-
-
 from torch.autograd import Variable
 
+
+class LSTMModel(torch.nn.Module):
+    def __init__(self, word_emb_array, hidden_dim=-1,
+                 n_lstm_layers=2):
+        super(LSTMModel, self).__init__()
+
+        torch.set_default_dtype(torch.float64)
+
+        # Word embedding
+        embedding_dim = word_emb_array.shape[1]
+        self.output_dim = word_emb_array.shape[0]
+        self.embedding = torch.nn.Embedding.from_pretrained(
+            torch.DoubleTensor(word_emb_array))
+
+        # Hidden dimensions
+        self.hidden_dim = hidden_dim if hidden_dim > 0 else embedding_dim
+
+        # Number of stacked lstm layers
+        self.n_lstm_layers = n_lstm_layers
+
+        # shape of input/output tensors: (batch_dim, seq_dim, feature_dim)
+        self.lstm = torch.nn.LSTM(embedding_dim, self.hidden_dim, n_lstm_layers, batch_first=True)
+        self.fc = torch.nn.Linear(self.hidden_dim, self.output_dim)
+
+    def trainable_parameters(self):
+        return [p for p in self.parameters() if p.requires_grad]
+
+    def forward(self, x):
+        # word embedding
+        x = self.embedding(x)
+
+        self.h0 = torch.zeros(self.n_lstm_layers, x.size(0), self.hidden_dim).requires_grad_().cuda()
+        self.c0 = torch.zeros(self.n_lstm_layers, x.size(0), self.hidden_dim).requires_grad_().cuda()
+
+        # lstm
+        out, _ = self.lstm(x, (self.h0.detach(), self.c0.detach()))
+
+        # Index hidden state of last time step; out.size = `batch, seq_len, hidden`
+        out = self.fc(out[:, -1, :])
+        return out.reshape(-1, self.output_dim)  # hard-coded for binary classification
+
 class CharRNN(nn.Module):
-    def __init__(self, input_size, hidden_size=256, model="lstm", n_layers=2):
+    def __init__(self, input_size, hidden_size=100, model="lstm", n_layers=2, word_emb_array=None):
         super(CharRNN, self).__init__()
         self.model = model.lower()
         self.input_size = input_size
@@ -16,11 +54,16 @@ class CharRNN(nn.Module):
         self.output_size = input_size
         self.n_layers = n_layers
 
-        self.encoder = nn.Embedding(input_size, 8)
+
+        embedding_dimension = 8 if word_emb_array is None else word_emb_array.shape[1]
+        self.encoder = nn.Embedding(input_size, embedding_dimension)
+        if word_emb_array is not None:
+            self.encoder = torch.nn.Embedding.from_pretrained(
+                torch.FloatTensor(word_emb_array))
         if self.model == "gru":
-            self.rnn = nn.GRU(8, hidden_size, n_layers)
+            self.rnn = nn.GRU(embedding_dimension, hidden_size, n_layers)
         elif self.model == "lstm":
-            self.rnn = nn.LSTM(8, hidden_size, n_layers, batch_first=True)
+            self.rnn = nn.LSTM(embedding_dimension, hidden_size, n_layers, batch_first=True)
         self.decoder = nn.Linear(hidden_size, input_size)
 
     def forward(self, inp):
@@ -29,7 +72,7 @@ class CharRNN(nn.Module):
         self.zero_grad()
 
         encoded = self.encoder(inp)
-        output, self.hidden = self.rnn(encoded, self.hidden)
+        output, _ = self.rnn(encoded, self.hidden)
         output = output[:, -1, :]
         output = self.decoder(output)
 
@@ -432,53 +475,7 @@ def ResNet18(num_classes=10):
 def ResNet34(num_classes=10):
     return ResNet(BasicBlock, [8, 8, 8, 8], num_classes=num_classes, use_batchnorm=Arguments.batchnorm)
 
-class LSTMModel(torch.nn.Module):
-    def __init__(self, word_emb_array, hidden_dim=-1,
-                 n_lstm_layers=1, output_dim=1, default_batch_size=10):
-        super(LSTMModel, self).__init__()
 
-        torch.set_default_dtype(torch.float64)
-
-        # Word embedding
-        embedding_dim = word_emb_array.shape[1]
-        self.embedding = torch.nn.Embedding.from_pretrained(
-            torch.DoubleTensor(word_emb_array))
-
-        # Hidden dimensions
-        self.hidden_dim = hidden_dim if hidden_dim > 0 else embedding_dim
-
-        # Number of stacked lstm layers
-        self.n_lstm_layers = n_lstm_layers
-
-        # shape of input/output tensors: (batch_dim, seq_dim, feature_dim)
-        self.lstm = torch.nn.LSTM(embedding_dim, self.hidden_dim, n_lstm_layers, batch_first=True)
-        self.fc = torch.nn.Linear(self.hidden_dim, output_dim)
-
-        # hidden state and cell state
-        self.h0 = torch.zeros(self.n_lstm_layers, default_batch_size, self.hidden_dim).requires_grad_()
-        self.c0 = torch.zeros(self.n_lstm_layers, default_batch_size, self.hidden_dim).requires_grad_()
-
-    def trainable_parameters(self):
-        return [p for p in self.parameters() if p.requires_grad]
-
-    def forward(self, x):
-        # word embedding
-        x = self.embedding(x)
-
-        if self.h0.size(1) == x.size(0):
-            self.h0.data.zero_()
-            self.c0.data.zero_()
-        else:
-            # resize hidden vars
-            self.h0 = torch.zeros(self.n_lstm_layers, x.size(0), self.hidden_dim).requires_grad_()
-            self.c0 = torch.zeros(self.n_lstm_layers, x.size(0), self.hidden_dim).requires_grad_()
-
-        # lstm
-        out, _ = self.lstm(x, (self.h0.detach(), self.c0.detach()))
-
-        # Index hidden state of last time step; out.size = `batch, seq_len, hidden`
-        out = self.fc(out[:, -1, :])
-        return out.view(-1)  # hard-coded for binary classification
 #
 # def ResNet50(num_classes=10, use_batchnorm=True):
 #     return ResNet(Bottleneck, [3,4,6,3], num_classes=num_classes, use_batchnorm=Arguments.batchnorm)
