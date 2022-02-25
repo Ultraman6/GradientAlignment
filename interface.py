@@ -599,12 +599,14 @@ def init_processes(rank:int, size:int, fn, dataloaders:list, indices:list, backe
     """ Initialize the distributed environment. """
     os.environ['MASTER_ADDR'] = Arguments.master_addr
     os.environ['MASTER_PORT'] = Arguments.master_port
-    try:
-        dist.init_process_group(backend, rank=rank, world_size=size)
-    except Exception as e:
-        print("Error in init process group ", Arguments.master_addr,"rank=",rank,Arguments.master_port)
-        print(str(e))
-        return
+    # try:
+
+
+    dist.init_process_group(backend, rank=rank, world_size=size)
+    # except Exception as e:
+    #     print("Error in init process group ", Arguments.master_addr,"rank=",rank,Arguments.master_port)
+    #     print(str(e))
+    #     return
     fn(rank, size, dataloaders, indices)
 
 def construct_and_train():

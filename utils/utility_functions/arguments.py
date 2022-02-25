@@ -81,8 +81,8 @@ def parse_arguments():
     args = vars(parser.parse_args())
     if ((args['percentage_iid'] == 0) or (args['percentage_iid'] == 1)):
         args['batch_size_iid'] = 0
-    args['master_addr'] = '127.0.0.1' + str(args['port'])
-    args['master_port'] = str(295010 + args['port'])
+    args['master_addr'] = '127.0.0.' + str(args['port'])
+    args['master_port'] = str(295 + args['port'])
     args['ngpus'] = 1 + args['gpu_ids'].count(",")
     os.environ["CUDA_VISIBLE_DEVICES"] = args['gpu_ids'].replace(" ", "").replace("[", "").replace("]", "")
 
