@@ -1,4 +1,6 @@
 import os
+import random
+
 import wandb
 import torch.optim as optim
 from torch.multiprocessing import Process
@@ -6,9 +8,11 @@ from utils.data_processing.data_splitter import split_data, get_validation_data
 from utils.utility_functions.functions import *
 from utils.utility_functions.arguments import Arguments
 from utils.utility_functions.accumulators import *
+from torchvision import datasets, transforms
+from utils.data_processing.data_splitter import CIFAR10Transform
 
 
-def FedProx(rank:int, size:int, dataloaders:list, indices):
+def FedProx(rank:int, size:int, dataloaders:list, indices, seeds):
     """Implementation of FedProx. In each round the algorithm samples the active workers
     and performs Arguments.nsteps local updates before averaging the models to complete the round."""
     print(rank)
@@ -120,7 +124,7 @@ def FedProx(rank:int, size:int, dataloaders:list, indices):
             wandb.finish()
 
 
-def SGD(rank:int, size:int, dataloaders:list, indices):
+def SGD(rank:int, size:int, dataloaders:list, indices, seeds):
     """Implementation of SGD. In each round the algorithm samples the active workers
     and performs Arguments.nsteps local updates before averaging the models to complete the round."""
     print(rank)
@@ -194,7 +198,7 @@ def SGD(rank:int, size:int, dataloaders:list, indices):
             wandb.finish()
 
 
-def FedAvg(rank:int, size:int, dataloaders:list, indices):
+def FedAvg(rank:int, size:int, dataloaders:list, indices, seeds):
     """Implementation of FedAvg. In each round the algorithm samples the active workers
     and performs Arguments.nsteps local updates before averaging the models to complete the round."""
     print(rank)
@@ -305,7 +309,7 @@ def FedAvg(rank:int, size:int, dataloaders:list, indices):
 
 
 
-def GradAlign(rank:int, size:int, dataloaders:list, indices):
+def GradAlign(rank:int, size:int, dataloaders:list, indices, seeds:list):
     """Implementation of the FedGA algorithm. GradAlign is the particular case when Arguments.nsteps=1.
     The algorithm computes the drift correction and scales it to apply a correction before starting.
     Then it performs Arguments.nsteps local steps before averaging the models to conlcude one round."""
@@ -344,7 +348,19 @@ def GradAlign(rank:int, size:int, dataloaders:list, indices):
 
         criterion = torch.nn.functional.cross_entropy
 
+        if Arguments.resplit_data:
+            dataset = datasets.CIFAR10(root=Arguments.data_home, train=True, download=True,
+                                   transform=CIFAR10Transform.train_transform())
+
         for counter, worker_index in enumerate(indices):
+            if Arguments.resplit_data:
+                perm = [i for i in range(len(dataset))]
+                random.seed(seeds[counter])
+                random.shuffle(perm)
+                slice_size = len(dataset) // Arguments.nsubsets
+                subset = torch.utils.data.Subset(dataset, perm[worker_index * slice_size: worker_index * (slice_size + 1)])
+                dataloader = torch.utils.data.DataLoader(subset, batch_size=Arguments.batch_size, shuffle=True)
+
             mean_train_loss = Mean()
             mean_train_acc = Mean()
             # Computation of full gradient and local gradient needed to compute the drift
@@ -376,9 +392,13 @@ def GradAlign(rank:int, size:int, dataloaders:list, indices):
                 try:
                     data, target = train_iterable.next()
                 except:
-                    train_iterable = iter(dataloaders[worker_index])
+                    if Arguments.resplit_data:
+                        train_iterable = iter(dataloader)
+                    else:
+                        train_iterable = iter(dataloaders[worker_index])
+
                     data, target = train_iterable.next()
-                data, target = data.cuda(),target.reshape(-1).cuda()
+                data, target = data.cuda(), target.reshape(-1).cuda()
                 optimizer.zero_grad()
                 output = model(data)
                 loss = criterion(output, target)
@@ -424,7 +444,7 @@ def GradAlign(rank:int, size:int, dataloaders:list, indices):
             wandb.finish()
 
 
-def Scaffold(rank:int, size:int, dataloaders:list, indices:list):
+def Scaffold(rank:int, size:int, dataloaders:list, indices:list, seeds):
     """Implementation of Scaffold. On each round, from the sampled workers the drift correction is computed and is
     applied on each of the local updates"""
     print("Training Scaffold")
@@ -537,7 +557,7 @@ def Scaffold(rank:int, size:int, dataloaders:list, indices:list):
             wandb.finish()
 
 
-def lbsgd(rank:int, size:int, dataloaders:list, indices):
+def lbsgd(rank:int, size:int, dataloaders:list, indices, seeds):
     """ Implementation of Large Batch SGD. On each round, the algorithm computes the full gradient of each worker,
     averages it and use this average for the update. """
     print("Training lbsgd")
@@ -616,6 +636,8 @@ def construct_and_train():
                      for subset in split_data(Arguments.task, Arguments.nsubsets, Arguments.percentage_iid,
                                               use_two_splits=False )]
 
+    seeds = [random.randint(0, 100000) for _ in range(Arguments.nrounds)]
+
     # We get a list such that for each process i, the i-th entry of this list contains the least of indices of the
     # clients that will be sampled by this process in each of the rounds, i.e., if the list for the i-th process is
     #[1,4,6,7,9], it means that in the first round it will sample the 1st client, in the second the 4-th, and so on.
@@ -660,7 +682,8 @@ def construct_and_train():
                 Arguments.nprocesses,
                 fn,
                 dataloaders,
-                workers_to_processes[:,rank]
+                workers_to_processes[:,rank],
+                seeds
             )
         )
         p.start()
