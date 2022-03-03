@@ -358,110 +358,33 @@ class Transition(nn.Module):
 class ResNet(nn.Module):
     def __init__(self, block, num_blocks, num_classes=10, use_batchnorm=True):
         super(ResNet, self).__init__()
-
-        # self.param_names = ["conv1.weight", "bn1.weight", "bn1.bias", "conv2.weight", "bn2.weight", "bn2.bias"]
-        self.param_names = ["conv1.weight", "bn1.weight", "bn1.bias"]
-
-        self.level = 0
         self.in_planes = 64
         self.use_batchnorm = use_batchnorm
         self.conv1 = nn.Conv2d(3, 64, kernel_size=3, stride=1, padding=1, bias=False)
         self.bn1 = nn.BatchNorm2d(64) if use_batchnorm else nn.Sequential()
-        self.layer1 = Layer(block, 64, 64, num_blocks[0], stride=1, use_batchnorm=use_batchnorm)
-        self.transition1 = Transition(64, 128, stride=2, use_batchnorm=use_batchnorm)
-        self.layer2 = Layer(block, 128, 128, num_blocks[1], stride=1, use_batchnorm=use_batchnorm)
-        self.transition2 = Transition(128, 256, stride=2, use_batchnorm=use_batchnorm)
-        self.layer3 = Layer(block, 256, 256, num_blocks[2], stride=1, use_batchnorm=use_batchnorm)
-        self.transition3 = Transition(256, 512, stride=2, use_batchnorm=use_batchnorm)
-        self.layer4 = Layer(block, 512, 512, num_blocks[3], stride=1, use_batchnorm=use_batchnorm)
-
-        self.layers = [self.layer1, self.layer2, self.layer3, self.layer4]
-
-        self.linear = nn.Linear(512 * block.expansion, num_classes)
-
-    def set_grads_to_none(self):
-        for param in self.parameters():
-            param.grad = None
+        self.layer1 = self._make_layer(block, 64, num_blocks[0], stride=1)
+        self.layer2 = self._make_layer(block, 128, num_blocks[1], stride=2)
+        self.layer3 = self._make_layer(block, 256, num_blocks[2], stride=2)
+        self.layer4 = self._make_layer(block, 512, num_blocks[3], stride=2)
+        self.linear = nn.Linear(512*block.expansion, num_classes)
 
     def num_active_parameters(self):
-        return sum(p.numel() for p in self.parameters() if p.grad is not None)
+        return sum(p.numel() for p in self.parameters() if p.requires_grad)
 
-    def set_level(self, level, with_reset=False):
-        self.level = level
-        for layer in self.layers:
-            layer.set_level(level, with_reset)
+    def _make_layer(self, block, planes, num_blocks, stride):
+        strides = [stride] + [1]*(num_blocks-1)
+        layers = []
+        for stride in strides:
+            layers.append(block(self.in_planes, planes, stride, self.use_batchnorm))
+            self.in_planes = planes * block.expansion
+        return nn.Sequential(*layers)
 
-    def get_active_blocks(self):
-        active_blocks = []
-        for layer in self.layers:
-            active_blocks.append([i for i, block in enumerate(layer.blocks) if block.active])
-        return active_blocks
-
-    def get_all_blocks(self):
-        all_blocks = []
-        for layer in self.layers:
-            all_blocks.append([i for i, block in enumerate(layer.blocks)])
-        return all_blocks
-
-    def smooth_layers(self, domain, restriction_domain=None, block_list=None):
-        """For each block in the restriction domain, it takes
-        the next a previous items in the domain and averages their data"""
-        if restriction_domain is None:
-            restriction_domain = domain
-        with torch.no_grad():
-            for j, layer in enumerate(self.layers):
-                if block_list is not None:
-                    layer = block_list[j]
-                layer_domain = domain[j]
-                layer_restriction_domain = restriction_domain[j]
-                for i, block in enumerate(layer.blocks):
-                    if block_list is not None:
-                        block = block_list[j][i]
-                    if i in layer_restriction_domain:
-                        index = layer_domain.index(i)
-                        previous_index = layer_domain[index - 1] if index - 1 > -1 else None
-                        next_index = layer_domain[index + 1] if index + 1 < len(layer_domain) else None
-
-                        prev_block = dict(
-                            layer.blocks[previous_index].named_parameters()
-                        ) if previous_index is not None else None
-                        next_block = dict(
-                            layer.blocks[next_index].named_parameters()
-                        ) if next_index is not None else None
-                        block_params = dict(block.named_parameters())
-                        # not exactly what we want, there is a cascading effect
-                        for name in self.param_names:
-                            div = 1
-                            if prev_block is not None:
-                                block_params[name].data += prev_block[name].data
-                                div += 1
-                            if next_block is not None:
-                                block_params[name].data += next_block[name].data
-                                div += 1
-                            block_params[name].data /= div
-        if block_list is not None:
-            return block_list
-
-    def activate_blocks_per_layer(self, blocks_per_layer):
-        for i, layer in enumerate(self.layers):
-            for j, block in enumerate(layer.blocks):
-                block.active = j in blocks_per_layer[i]
-
-    def activate_all_blocks(self):
-        for i, layer in enumerate(self.layers):
-            for block in layer.blocks:
-                block.active = True
-
-    def forward(self, x):
-        scaling = 2 ** self.level if Arguments.scaling else 1
+    def forward(self, x, block_list=None):
         out = F.relu(self.bn1(self.conv1(x)))
-        out = self.layer1(out, scaling)
-        out = self.transition1(out)
-        out = self.layer2(out, scaling)
-        out = self.transition2(out)
-        out = self.layer3(out, scaling)
-        out = self.transition3(out)
-        out = self.layer4(out, scaling)
+        out = self.layer1(out)
+        out = self.layer2(out)
+        out = self.layer3(out)
+        out = self.layer4(out)
         out = F.avg_pool2d(out, 4)
         out = out.view(out.size(0), -1)
         out = self.linear(out)
@@ -470,10 +393,10 @@ class ResNet(nn.Module):
 
 
 def ResNet18(num_classes=10):
-    return ResNet(BasicBlock, [4, 4, 4, 4], num_classes=num_classes, use_batchnorm=Arguments.batchnorm)
+    return ResNet(BasicBlock, [2, 2, 2, 2], num_classes=num_classes, use_batchnorm=Arguments.batchnorm)
 
 def ResNet34(num_classes=10):
-    return ResNet(BasicBlock, [8, 8, 8, 8], num_classes=num_classes, use_batchnorm=Arguments.batchnorm)
+    return ResNet(BasicBlock, [3, 4, 6, 3], num_classes=num_classes, use_batchnorm=Arguments.batchnorm)
 
 
 #
