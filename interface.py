@@ -54,9 +54,10 @@ def FedProx(rank:int, size:int, dataloaders:list, indices, seeds):
         for counter, worker_index in enumerate(indices):
             mean_train_loss = Mean()
             mean_train_acc = Mean()
+            dataloader = dataloaders[worker_index]
             # Optional argument to log the gardient Variance
             if Arguments.plot_grad_alignment:
-                local_gradient, full_gradient = compute_full_gradient(model, worker_index, criterion, dataloaders,
+                local_gradient, full_gradient = compute_full_gradient(model, worker_index, criterion, dataloader,
                                                                       group)
                 if rank == 0:
                     difference = create_zero_list(model)
@@ -73,7 +74,7 @@ def FedProx(rank:int, size:int, dataloaders:list, indices, seeds):
                 try:
                     data, target = train_iterable.next()
                 except:
-                    train_iterable = iter(dataloaders[worker_index])
+                    train_iterable = iter(dataloader)
                     data, target = train_iterable.next()
                 data, target = data.cuda(),target.reshape(-1).cuda()
                 optimizer.zero_grad()
@@ -127,7 +128,7 @@ def FedProx(rank:int, size:int, dataloaders:list, indices, seeds):
 def SGD(rank:int, size:int, dataloaders:list, indices, seeds):
     """Implementation of SGD. In each round the algorithm samples the active workers
     and performs Arguments.nsteps local updates before averaging the models to complete the round."""
-    print(rank)
+    print("Training SGD ", rank)
 
     with torch.cuda.device(get_device(rank, as_str=True)):
         model = define_model()
@@ -159,8 +160,9 @@ def SGD(rank:int, size:int, dataloaders:list, indices, seeds):
         for counter, worker_index in enumerate(indices):
             mean_train_loss = Mean()
             mean_train_acc = Mean()
+            dataloader = dataloaders[worker_index]
 
-            for data, target in dataloaders[worker_index]:
+            for data, target in dataloader:
                 data, target = data.cuda(),target.reshape(-1).cuda()
                 optimizer.zero_grad()
 
@@ -240,9 +242,10 @@ def FedAvg(rank:int, size:int, dataloaders:list, indices, seeds):
         for counter, worker_index in enumerate(indices):
             mean_train_loss = Mean()
             mean_train_acc = Mean()
+            dataloader = dataloaders[worker_index]
             # Optional argument to log the gardient Variance
             if Arguments.plot_grad_alignment:
-                local_gradient, full_gradient = compute_full_gradient(model, worker_index, criterion, dataloaders,
+                local_gradient, full_gradient = compute_full_gradient(model, worker_index, criterion, dataloader,
                                                                       group)
                 if rank == 0:
                     difference = create_zero_list(model)
@@ -258,7 +261,7 @@ def FedAvg(rank:int, size:int, dataloaders:list, indices, seeds):
                 try:
                     data, target = train_iterable.next()
                 except:
-                    train_iterable = iter(dataloaders[worker_index])
+                    train_iterable = iter(dataloader)
                     data, target = train_iterable.next()
                 data, target = data.cuda(),target.reshape(-1).cuda()
                 optimizer.zero_grad()
@@ -313,7 +316,7 @@ def GradAlign(rank:int, size:int, dataloaders:list, indices, seeds:list):
     """Implementation of the FedGA algorithm. GradAlign is the particular case when Arguments.nsteps=1.
     The algorithm computes the drift correction and scales it to apply a correction before starting.
     Then it performs Arguments.nsteps local steps before averaging the models to conlcude one round."""
-    print("Training GradAlign")
+    print("Training GradAlign with resplit_data->", Arguments.resplit_data)
     with torch.cuda.device(get_device(rank, as_str=True)):
         model = define_model()
         model_at_start = define_model()
@@ -358,13 +361,15 @@ def GradAlign(rank:int, size:int, dataloaders:list, indices, seeds:list):
                 random.seed(seeds[counter])
                 random.shuffle(perm)
                 slice_size = len(dataset) // Arguments.nsubsets
-                subset = torch.utils.data.Subset(dataset, perm[worker_index * slice_size: worker_index * (slice_size + 1)])
+                subset = torch.utils.data.Subset(dataset, perm[worker_index * slice_size: (worker_index + 1) * slice_size])
                 dataloader = torch.utils.data.DataLoader(subset, batch_size=Arguments.batch_size, shuffle=True)
+            else:
+                dataloader = dataloaders[worker_index]
 
             mean_train_loss = Mean()
             mean_train_acc = Mean()
             # Computation of full gradient and local gradient needed to compute the drift
-            local_gradient, full_gradient = compute_full_gradient(model, worker_index, criterion, dataloaders, group)
+            local_gradient, full_gradient = compute_full_gradient(model, worker_index, criterion, dataloader, group)
             # To compute this gradient, there is an additional round of communication
             num_rounds += 1
 
@@ -392,10 +397,7 @@ def GradAlign(rank:int, size:int, dataloaders:list, indices, seeds:list):
                 try:
                     data, target = train_iterable.next()
                 except:
-                    if Arguments.resplit_data:
-                        train_iterable = iter(dataloader)
-                    else:
-                        train_iterable = iter(dataloaders[worker_index])
+                    train_iterable = iter(dataloader)
 
                     data, target = train_iterable.next()
                 data, target = data.cuda(), target.reshape(-1).cuda()
@@ -486,7 +488,8 @@ def Scaffold(rank:int, size:int, dataloaders:list, indices:list, seeds):
             mean_train_loss = Mean()
             mean_train_acc = Mean()
             # Computation of the elements needed for the drift correction
-            local_gradient, full_gradient = compute_full_gradient(model, worker_index, criterion, dataloaders, group)
+            dataloader = dataloaders[worker_index]
+            local_gradient, full_gradient = compute_full_gradient(model, worker_index, criterion, dataloader, group)
             # To compute this gradient, there is an additional round of communication
             num_rounds += 1
 
@@ -505,7 +508,7 @@ def Scaffold(rank:int, size:int, dataloaders:list, indices:list, seeds):
                 try:
                     data, target = train_iterable.next()
                 except:
-                    train_iterable = iter(dataloaders[worker_index])
+                    train_iterable = iter(dataloader)
                     data, target = train_iterable.next()
                 data, target = data.cuda(),target.reshape(-1).cuda()
                 optimizer.zero_grad()
@@ -591,7 +594,8 @@ def lbsgd(rank:int, size:int, dataloaders:list, indices, seeds):
 
         for counter, worker_index in enumerate(indices):
             # Computation of the full gradient by averaging the full local gradient among all active workers
-            local_gradient, full_gradient = compute_full_gradient(model, worker_index, criterion, dataloaders, group)
+            dataloader = dataloaders[worker_index]
+            local_gradient, full_gradient = compute_full_gradient(model, worker_index, criterion, dataloader, group)
             optimizer.zero_grad()
 
             for i, param in enumerate(model.parameters()):
@@ -615,7 +619,7 @@ def lbsgd(rank:int, size:int, dataloaders:list, indices, seeds):
 
 
 
-def init_processes(rank:int, size:int, fn, dataloaders:list, indices:list, backend='gloo'):
+def init_processes(rank:int, size:int, fn, dataloaders:list, indices:list, seeds, backend='gloo'):
     """ Initialize the distributed environment. """
     os.environ['MASTER_ADDR'] = Arguments.master_addr
     os.environ['MASTER_PORT'] = Arguments.master_port
@@ -627,7 +631,7 @@ def init_processes(rank:int, size:int, fn, dataloaders:list, indices:list, backe
     #     print("Error in init process group ", Arguments.master_addr,"rank=",rank,Arguments.master_port)
     #     print(str(e))
     #     return
-    fn(rank, size, dataloaders, indices)
+    fn(rank, size, dataloaders, indices, seeds)
 
 def construct_and_train():
     # We partition the data according to the chosen distribution. The parameter Arguments.percentage_iid controls

@@ -12,15 +12,15 @@ def set_variable_from_dict(dictionary):
 def parse_arguments():
     parser = ArgumentParser(description="PyTorch experiments")
 
-    parser.add_argument("--nsubsets", default=100, type=int, choices=range(1, 1001),
+    parser.add_argument("--nsubsets", default=100, type=int,
                         help="Total number of clients to be used")
-    parser.add_argument("--nprocesses", default=1, type=int, choices=range(1, 48),
+    parser.add_argument("--nprocesses", default=1, type=int,
                         help="number of processes, i.e., number of clients sampled in each round")
-    parser.add_argument("--batch_size", default=50, type=int, choices=range(1, 5001),
+    parser.add_argument("--batch_size", default=50, type=int,
                         help="batch size of every process")
-    parser.add_argument("--nsteps", default=5, type=int, choices=range(0, 2001), help="number of local steps per round")
-    parser.add_argument("--nrounds", default=1001, type=int, choices=range(1, 400002), help="number of rounds")
-    parser.add_argument("--nlogging_steps", default=100, type=int, choices=range(1, 1001),
+    parser.add_argument("--nsteps", default=5, type=int, help="number of local steps per round")
+    parser.add_argument("--nrounds", default=1001, type=int, help="number of rounds")
+    parser.add_argument("--nlogging_steps", default=100, type=int,
                         help="number of rounds for logging, i.e., there is logging whenever round % nlogging_steps == 0")
     parser.add_argument("--learning_rate", default=0.01, type=float, help="learning rate for each of the local steps")
     parser.add_argument("--scaling", action='store_true', help="Use scaling of the gradients per layer")
@@ -44,7 +44,7 @@ def parse_arguments():
     parser.add_argument("--scheduler", default="[1000000000]", type=str, help="scheduler decreases the learning rates when the the round is in the given list")
     parser.add_argument("--lr_decay", default=0.1, type=float, help="Learning rate decay")
 
-    parser.add_argument("--port", default=21, type=int, choices=range(0, 100), help="final digit of port number for the distributed process. No two processes with the same port can run simultaneously. ")
+    parser.add_argument("--port", default=21, type=int, help="final digit of port number for the distributed process. No two processes with the same port can run simultaneously. ")
 
     parser.add_argument("--gpu_ids", default="[0,1]", type=str, help="a list with the indices of the gpus to run the experiment. Processes will be distributed evenly among them.")
     parser.add_argument("--percentage_iid", default=1.0, type=float,

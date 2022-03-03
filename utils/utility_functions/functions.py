@@ -74,12 +74,12 @@ def average_models(model: nn.Module, group):
         dist.all_reduce(param.data, op=torch.distributed.ReduceOp.SUM, group=group)
         param.data /= size
 
-def compute_full_gradient(model:nn.Module, worker_index:int, criterion, dataloaders, group):
+def compute_full_gradient(model:nn.Module, worker_index:int, criterion, dataloader, group):
     full_gradient = create_zero_list(model)
     worker_full_gradient = create_zero_list(model)
 
     data_points = 0
-    for data, target in dataloaders[worker_index]:
+    for data, target in dataloader:
         data, target = data.cuda(), target.reshape(-1).cuda()
         model.zero_grad()
         output = model(data)
