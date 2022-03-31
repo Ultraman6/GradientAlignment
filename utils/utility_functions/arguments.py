@@ -66,7 +66,8 @@ def parse_arguments():
     parser.add_argument("--fg_batch_size", default=-1, type=int, help="Full gradient Batch size")
 
     parser.add_argument("--plot_grad_alignment", action='store_true', help="Set to true to plot the gradient variance after each round.")
-
+    parser.add_argument('--sga', action='store_true',
+                        help="Use SGA algorithm, it is also used by default if no other is set")
     parser.add_argument('--sgd', action='store_true',
                         help="Use SGD algorithm, it is also used by default if no other is set")
     parser.add_argument('--fedavg', action='store_true', help="Use FedAvg algorithm, it is also used by default if no other is set")

@@ -192,10 +192,10 @@ def replace_model_data(model1, model2):
         param.data = model2_parameters[i].data.clone()
 
 def get_gradient(pars:dict):#carefull: in place =
-    temp=copy.copy(pars)
-    for key in temp.keys():
-        temp[key]=pars[key].grad.clone()
-    return temp
+    grads = []
+    for param in pars:
+        grads.append(param.grad.clone())
+    return grads
 
 def add_parameters(par1: dict, par2: dict, times: float = 1.0, times_0: float=1.0):
     if times_0==1 and times == 0:
