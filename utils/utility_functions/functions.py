@@ -8,11 +8,10 @@ import torch.distributed as dist
 import json
 import numpy as np
 
-def validation_accuracy(model: torch.nn.Module, cuda_dev):
+def validation_accuracy(model: torch.nn.Module, cuda_dev, validation_loader):
     model.eval()
     mean_test_accuracy = Mean()
     mean_test_loss = Mean()
-    validation_loader = Arguments.validation_loader
     criterion = torch.nn.CrossEntropyLoss()
     with torch.no_grad():
         for batch_x, batch_y in validation_loader:
@@ -151,11 +150,11 @@ def updateBestResults(model:nn.Module, avg_acc, avg_loss):
                 state = copy.deepcopy(model.state_dict()).cpu()
                 torch.save(state, model_path)
 
-def check_validation_and_stopping(counter, model, num_updates, num_rounds, rank, group):
+def check_validation_and_stopping(counter, model, num_updates, num_rounds, rank, group, validation_loader):
     stop = torch.tensor(0)
     if rank == 0:
         cuda_dev = get_device(rank)
-        loss, acc = validation_accuracy(model, cuda_dev=cuda_dev)
+        loss, acc = validation_accuracy(model, cuda_dev, validation_loader)
         log_metric(
             ["Test Accuracy", "Test Loss", "num_updates", "rounds"],
             [acc, loss, num_updates, num_rounds],
