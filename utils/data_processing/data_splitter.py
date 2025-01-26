@@ -204,7 +204,7 @@ def split_data(task: str, workers: int, percentage_iid: float, use_two_splits: b
         return get_shakespeare_ds(train=True)
     elif Arguments.task == "sent140":
         return get_sent140_ds(train=True)
-    else:  # task == "CIFAR10"
+    else:
         dataset = datasets.CIFAR10(root=Arguments.data_home, train=True, download=True,
                                    transform=CIFAR10Transform.train_transform())
     if percentage_iid == 1:

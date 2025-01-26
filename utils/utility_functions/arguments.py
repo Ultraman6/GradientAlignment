@@ -15,20 +15,31 @@ def set_variable_from_dict(dictionary):
 def parse_arguments():
     parser = ArgumentParser(description="PyTorch experiments")
 
-    parser.add_argument('--algorithm', default='SAM',
-                        choices=["lbsgd", "GradAlign", "OralAlign", "Scaffold", "FedProx", "SGA", "SGD", "FedAvg", "SAM"])
+    parser.add_argument('--algorithm', default='FedInit',
+                        choices=["lbsgd", "GradAlign", "OralAlign", "Scaffold", "FedProx", "SGA", "SGD",
+                                 "FedAvg", "SAM", "FedSAM", "SAMAlign", "FedAware", "DSGD", "FedInit" "DualAlign"])
+    parser.add_argument("--learning_rate", default=0.01, type=float, help="learning rate for each of the local steps")
+    parser.add_argument("--beta", default=0.1, type=float,
+                        help="Corresponds to the beta constant in the FedGA algorithm")
+    parser.add_argument("--rho", default=0.05, type=float,
+                        help="Corresponds to the beta constant in the FedGA algorithm")
+    parser.add_argument("--weight_decay", default=0.001, type=float, help="Optimizer's weight decay")
 
-    parser.add_argument("--nsubsets", default=100, type=int,
-                        help="客户样本量")
+    parser.add_argument("--server_momentum", default=0.0, type=float, help="server momentum")
+    parser.add_argument("--momentum", default=0.0, type=float, help="local momentum")
+    parser.add_argument("--server_learning_rate", default=1.0, type=float,
+                        help="server step learning rate, default is 1.0")
+
     parser.add_argument("--nprocesses", default=10, type=int,
                         help="客户数量")
+    parser.add_argument("--nsubsets", default=100, type=int,
+                        help="客户样本量")
     parser.add_argument("--batch_size", default=50, type=int,
-                        help="客户样本批量")
+                        help="客户样本批量大小")
     parser.add_argument("--nsteps", default=5, type=int, help="本地更新轮次（nprocesses）级别")
     parser.add_argument("--nrounds", default=101, type=int, help="number of rounds")
     parser.add_argument("--nlogging_steps", default=100, type=int,
                         help="number of rounds for logging, i.e., there is logging whenever round % nlogging_steps == 0")
-    parser.add_argument("--learning_rate", default=0.01, type=float, help="learning rate for each of the local steps")
     parser.add_argument("--scaling", action='store_true', help="Use scaling of the gradients per layer")
     parser.add_argument("--snapshot", action='store_true', help="Use scaling of the gradients per layer")
 
@@ -42,8 +53,8 @@ def parse_arguments():
 
     parser.add_argument('--wandb', default=True, help="Use weights and biases logging system. You need an account and to be logged in for this to work.")
 
-    parser.add_argument("--wandb_exp_name", default='variance via orthogonal', type=str, help="Experiment name in wandb")
-    # parser.add_argument("--wandb_exp_name", default='GradAlign', type=str, help="Experiment name in wandb")
+    parser.add_argument("--wandb_exp_name", default='test for server look ahead', type=str, help="Experiment name in wandb")
+    # 'variance via orthogonal' 'element-wise for oral_align niid'
 
     parser.add_argument("--load_seed", type=int, default=-1, help="Used to set the random seed of the algorithm.")
 
@@ -54,18 +65,12 @@ def parse_arguments():
     parser.add_argument("--port", default=21, type=int, help="final digit of port number for the distributed process. No two processes with the same port can run simultaneously. ")
 
     parser.add_argument("--gpu_ids", default="[0]", type=str, help="a list with the indices of the gpus to run the experiment. Processes will be distributed evenly among them.")
-    parser.add_argument("--percentage_iid", default=1.0, type=float,
+    parser.add_argument("--percentage_iid", default=1, type=float,
                         help="percentage of iid data in workers' partition. 1.0 for fully IID data and 0.0 for completely heterogeneous data.")
-
-    parser.add_argument("--weight_decay", default=0.001, type=float, help="Optimizer's weight decay")
-    parser.add_argument("--server_momentum", default=0.0, type=float, help="server momentum")
-    parser.add_argument("--momentum", default=0.0, type=float, help="local momentum")
-    parser.add_argument("--server_learning_rate", default=1.0, type=float, help="server step learning rate, default is 1.0")
     parser.add_argument('--server_nesterov', action='store_true', help="Use Nesterov's server momentum")
     parser.add_argument('--batchnorm', action='store_true',
                         help="Use batch normalization (only available in Resnet Models)")
 
-    parser.add_argument("--beta", default=0.1, type=float, help="Corresponds to the beta constant in the FedGA algorithm")
     parser.add_argument("--prox_gamma", default=0.1, type=float,
                         help="FedProx constant")
 

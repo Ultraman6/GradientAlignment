@@ -1,3 +1,6 @@
+import math
+from typing import List
+
 import torch
 import copy
 import wandb
@@ -66,6 +69,35 @@ def define_model():
     model.cuda()
     return model
 
+def orthogonal_decomposition(full_gradient, local_gradient):
+    full_grad = torch.cat([torch.flatten(grad) for grad in full_gradient])  # 将 full_gradient 转为一个 flat vector
+    local_grad = torch.cat([torch.flatten(grad) for grad in local_gradient])  # 将 local_gradient 转为一个 flat vector
+    align_grad = full_grad - local_grad  # 计算对齐梯度
+    # if Arguments.plot_grad_alignment and rank == 0:
+    #     log_metric(["Inner Product"],
+    #                [torch.dot(align_grad, local_grad)],
+    #                num_updates, False)
+    local_grad_norm = torch.norm(local_grad, 2)  # 计算 local_gradient[i] 的范数
+    parallel_part = torch.dot(align_grad, local_grad) / (local_grad_norm ** 2) * local_grad
+    oral_grad = align_grad - parallel_part
+
+    # 将 oral_grad 分解回原模型参数的形状，并更新梯度
+    oral_grad_split = torch.split(oral_grad, [grad.numel() for grad in full_gradient])
+    parallel_part_split = torch.split(parallel_part, [grad.numel() for grad in full_gradient])
+    return oral_grad_split, parallel_part_split
+
+def orthogonal_decomposition_sim(full_gradient, local_gradient):
+    full_grad = torch.cat([torch.flatten(grad) for grad in full_gradient])  # 将 full_gradient 转为一个 flat vector
+    local_grad = torch.cat([torch.flatten(grad) for grad in local_gradient])  # 将 local_gradient 转为一个 flat vector
+    local_grad_norm = torch.norm(local_grad, 2)  # 计算 local_gradient[i] 的范数
+    parallel_part = torch.dot(full_grad, local_grad) / (local_grad_norm ** 2) * local_grad
+    oral_grad = full_grad - parallel_part
+
+    # 将 oral_grad 分解回原模型参数的形状，并更新梯度
+    oral_grad_split = torch.split(oral_grad, [grad.numel() for grad in full_gradient])
+    parallel_part_split = torch.split(parallel_part, [grad.numel() for grad in full_gradient])
+    return oral_grad_split, parallel_part_split
+
 def average_models(model: nn.Module, group):
     """ Model averaging. """
     size = float(dist.get_world_size())
@@ -73,9 +105,203 @@ def average_models(model: nn.Module, group):
         dist.all_reduce(param.data, op=torch.distributed.ReduceOp.SUM, group=group)
         param.data /= size
 
+def average_models_weighted(model: nn.Module, group, weight: torch.Tensor):
+    """
+    加权模型平均聚合。
+
+    Args:
+        model (nn.Module): 要聚合的模型。
+        group: 分布式训练的进程组。
+        weight (torch.Tensor): 当前设备的权重，必须是标量张量。
+    """
+    # 确保weight是标量
+    assert weight.dim() == 0, "Weight must be a scalar tensor."
+    # 复制当前设备的权重
+    local_weight = weight.clone()
+    # 计算所有设备的总权重
+    dist.all_reduce(local_weight, op=dist.ReduceOp.SUM, group=group)
+    total_weight = local_weight.item()
+    # 遍历模型的所有参数，进行加权聚合
+    for param in model.parameters():
+        # 将参数乘以当前设备的权重
+        param_weighted = param.data * weight
+        # 创建一个临时张量来存储加权后的参数
+        param_weighted_sum = torch.zeros_like(param_weighted)
+        # 聚合所有设备上的加权参数
+        dist.all_reduce(param_weighted_sum, tensor=param_weighted, op=dist.ReduceOp.SUM, group=group)
+        # 计算加权平均参数
+        param.data.copy_(param_weighted_sum / total_weight)
+
+def fedaware_average(gradient: List[torch.Tensor], group):
+    """
+    联邦感知的梯度加权平均聚合。
+    Args:
+        gradient (List[torch.Tensor]): 要更新的模型。
+        group: 分布式训练的进程组。
+    """
+
+    # Step 1: 计算本地梯度的L2范数
+    grad_tensor = torch.cat([torch.flatten(grad) for grad in gradient]).cuda()
+    grad_norm = torch.norm(grad_tensor, p=2)
+    grad_unit_tensor = grad_tensor / grad_norm
+
+    # Step 2: 收集所有设备的梯度范数
+    world_size = dist.get_world_size(group=group)
+    all_grad_tensors = [torch.zeros_like(grad_unit_tensor) for _ in range(world_size)]
+    dist.all_gather(all_grad_tensors, grad_unit_tensor, group=group)
+
+    sol, val = MinNormSolver.find_min_norm_element_FW(all_grad_tensors)
+
+    # Step 3: 获取当前进程的 rank
+    assert sol.sum() - 1 < 1e-5
+
+    weighted_grad = torch.zeros_like(grad_tensor)
+    for i in range(world_size):
+        weighted_grad += sol[i] * all_grad_tensors[i].cuda()
+
+    # Step 7: 将聚合后的梯度向量转换回列表结构
+    pointer = 0
+    for grad in gradient:
+        num_elements = grad.numel()
+        grad_slice = weighted_grad[pointer:pointer + num_elements]
+        grad_reshaped = grad_slice.view_as(grad)
+        grad.copy_(grad_reshaped)  # 直接在原地更新梯度
+        pointer += num_elements
+
+    avg_local_norm = sum([torch.norm(grad, p=2, dim=0).item()**2 * w**2 for grad, w in
+                          zip(all_grad_tensors, sol)]) / len(all_grad_tensors)
+
+    return math.sqrt(avg_local_norm)
+
 def compute_full_gradient(model:nn.Module, worker_index:int, criterion, dataloader, group):
     full_gradient = create_zero_list(model)
     worker_full_gradient = create_zero_list(model)
+    data_points = 0
+    for data, target in dataloader:
+        data, target = data.cuda(), target.reshape(-1).cuda()
+        model.zero_grad()
+        output = model(data)
+        loss = criterion(output, target)
+        loss.backward()
+        data_points += len(data)
+        for i, param in enumerate(model.parameters()):
+            if param.grad is not None:
+                full_gradient[i] += param.grad.data * len(data)
+
+        if Arguments.fg_batch_size > 0 and data_points >= Arguments.fg_batch_size:
+            break
+
+    data_points_wrapper = [torch.tensor([Arguments.nprocesses * data_points]).float()]
+    average_lists(data_points_wrapper, group)
+
+    for i, param in enumerate(model.parameters()):
+        # param.grad = full_gradient[i].clone() / data_points
+        worker_full_gradient[i] = (full_gradient[i].clone() / data_points).data.clone()
+        full_gradient[i] *= Arguments.nprocesses / data_points_wrapper[0].item()
+
+    # for i, param in enumerate(model.parameters()):
+    #     worker_full_gradient[i] = param.grad.data.clone()
+
+    if float(dist.get_world_size()) > 1:
+        average_lists(full_gradient, group)
+
+    model.zero_grad()
+
+    return worker_full_gradient, full_gradient
+
+def compute_local_gradient(model:nn.Module, worker_index:int, criterion, dataloader, group):
+    worker_full_gradient = create_zero_list(model)
+    data_points = 0
+    for data, target in dataloader:
+        data, target = data.cuda(), target.reshape(-1).cuda()
+        model.zero_grad()
+        output = model(data)
+        loss = criterion(output, target)
+        loss.backward()
+        data_points += len(data)
+        for i, param in enumerate(model.parameters()):
+            if param.grad is not None:
+                worker_full_gradient[i] += param.grad.data * len(data)
+
+        if Arguments.fg_batch_size > 0 and data_points >= Arguments.fg_batch_size:
+            break
+
+    for i, param in enumerate(model.parameters()):
+        worker_full_gradient[i] = (worker_full_gradient[i].clone() / data_points).data.clone()
+
+    model.zero_grad()
+
+    return worker_full_gradient
+
+def compute_full_sam_gradient(model:nn.Module, worker_index:int, optimizer, criterion, dataloader, group):
+    full_gradient_first = create_zero_list(model)
+    worker_full_gradient_first = create_zero_list(model)
+    full_gradient_second = create_zero_list(model)
+    worker_full_gradient_second = create_zero_list(model)
+    origin_param_list = create_model_param_list(model)
+
+    data_points = 0
+    for data, target in dataloader:
+        data, target = data.cuda(), target.reshape(-1).cuda()
+        optimizer.zero_grad()
+        # 扰动
+        output = model(data)
+        first_loss = criterion(output, target)
+        first_loss.backward(retain_graph=True)
+        for i, param in enumerate(model.parameters()):
+            if param.grad is not None:
+                full_gradient_first[i] += param.grad.data.clone() * len(data)
+        optimizer.first_step(zero_grad=True)
+
+        # 更新
+        outputs = model(data)
+        second_loss = criterion(outputs, target)
+        second_loss.backward()
+        for i, param in enumerate(model.parameters()):
+            if param.grad is not None:
+                full_gradient_second[i] += param.grad.data.clone() * len(data)
+        optimizer.second_step(zero_grad=True)
+
+        data_points += len(data) # 还原模型参数
+        for i, param in enumerate(model.parameters()):
+            param.data = origin_param_list[i].clone()
+
+        if Arguments.fg_batch_size > 0 and data_points >= Arguments.fg_batch_size:
+            break
+
+    for i, param in enumerate(model.parameters()):
+        if param.grad is not None:
+            full_gradient_second[i] -= full_gradient_first[i]
+
+    data_points_wrapper = [torch.tensor([Arguments.nprocesses * data_points]).float()]
+    average_lists(data_points_wrapper, group)
+
+    for i, param in enumerate(model.parameters()):
+        param.grad = full_gradient_first[i].clone() / data_points
+        full_gradient_first[i] *= Arguments.nprocesses / data_points_wrapper[0].item()
+
+    for i, param in enumerate(model.parameters()):
+        worker_full_gradient_first[i] = param.grad.data.clone()
+
+    if float(dist.get_world_size()) > 1:
+        average_lists(worker_full_gradient_first, group)
+
+    for i, param in enumerate(model.parameters()):
+        param.grad = full_gradient_second[i].clone() / data_points
+        full_gradient_second[i] *= Arguments.nprocesses / data_points_wrapper[0].item()
+
+    for i, param in enumerate(model.parameters()):
+        worker_full_gradient_second[i] = param.grad.data.clone()
+
+    if float(dist.get_world_size()) > 1:
+        average_lists(worker_full_gradient_second, group)
+
+    model.zero_grad()
+
+    return worker_full_gradient_first, full_gradient_first, worker_full_gradient_second, full_gradient_second
+
+def compute_ahead_gradient(model:nn.Module, worker_index:int, criterion, dataloader, group):
+    full_gradient = create_zero_list(model)
 
     data_points = 0
     for data, target in dataloader:
@@ -96,18 +322,38 @@ def compute_full_gradient(model:nn.Module, worker_index:int, criterion, dataload
     average_lists(data_points_wrapper, group)
 
     for i, param in enumerate(model.parameters()):
-        param.grad = full_gradient[i].clone() / data_points
         full_gradient[i] *= Arguments.nprocesses / data_points_wrapper[0].item()
 
-    for i, param in enumerate(model.parameters()):
-        worker_full_gradient[i] = param.grad.data.clone()
-
     if float(dist.get_world_size()) > 1:
-        # average the full gradient overall workers
         average_lists(full_gradient, group)
+
     model.zero_grad()
 
-    return worker_full_gradient, full_gradient
+    return full_gradient
+
+# def compute_ahead_gradient(model:nn.Module, worker_index:int, criterion, dataloader, group):
+#     gradient = create_zero_list(model)
+#
+#     data_points = 0
+#     for data, target in dataloader:
+#         data, target = data.cuda(), target.reshape(-1).cuda()
+#         model.zero_grad()
+#         output = model(data)
+#         loss = criterion(output, target)
+#         loss.backward()
+#         data_points += len(data)
+#         for i, param in enumerate(model.parameters()):
+#             if param.grad is not None:
+#                 gradient[i] += param.grad.data * len(data)
+#
+#         if Arguments.fg_batch_size > 0 and data_points >= Arguments.fg_batch_size:
+#             break
+#
+#     for i, param in enumerate(model.parameters()):
+#         gradient[i] /= data_points
+#
+#     model.zero_grad()
+#     return gradient
 
 
 def average_lists(gradients, group):
@@ -168,7 +414,7 @@ def check_validation_and_stopping(counter, model, num_updates, num_rounds, rank,
     return stop
 
 
-def log_metric(names:list, values:list, round:int, printing:bool = True):
+def log_metric(names:list, values, round:int, printing:bool = True):
     labels = [name + ' : ' +str(value) for name, value in zip(names, values)]
     if printing:
         print(', '.join(labels), ", round: ",round)
@@ -208,7 +454,7 @@ def add_parameters(par1: dict, par2: dict, times: float = 1.0, times_0: float=1.
 
 def in_place_add_parameters(par1: dict,par2: dict):
     for key in par1.keys():
-        par1[key]+=par2[key]
+        par1[key] += par2[key]
 
 def compute_norm(l:list, squared:bool=False):
     norm = 0
@@ -266,7 +512,7 @@ def cpu_to_cuda(par: dict):
         res[key] = value.cuda()
     return res
 
-def cosine_similarity(weights_from_grad: list, weights_from_data:list,is_in_grad:bool =True):
+def cosine_similarity(weights_from_grad: list, weights_from_data:list,is_in_grad:bool=True):
     weights1=copy.copy(weights_from_grad)
     if not is_in_grad:
         for i,par in enumerate(weights1):
@@ -280,3 +526,4 @@ def cosine_similarity(weights_from_grad: list, weights_from_data:list,is_in_grad
     weights1=torch.cat(weights1)
     weights2=torch.cat(weights2)
     return torch.nn.functional.cosine_similarity(weights1,weights2,dim=0)
+
